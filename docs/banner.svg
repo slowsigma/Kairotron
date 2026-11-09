@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" width="1200" height="360" role="img" aria-label="Kairotron banner: stepped stock trajectories crossed by a playhead line">
+  <!-- Kairotron banner — stepped discrete-time series + playhead, in the app's palette -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1e26"/>
+      <stop offset="1" stop-color="#14161b"/>
+    </linearGradient>
+    <filter id="titleGlow" x="-20%" y="-40%" width="140%" height="180%">
+      <feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="#e8b64c" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="1199" height="359" rx="10" fill="url(#bg)" stroke="#2c313d"/>
+
+  <!-- faint chart grid -->
+  <g stroke="#20242e" stroke-width="1">
+    <line x1="544" y1="120" x2="1152" y2="120"/>
+    <line x1="544" y1="170" x2="1152" y2="170"/>
+    <line x1="544" y1="220" x2="1152" y2="220"/>
+    <line x1="544" y1="270" x2="1152" y2="270"/>
+  </g>
+
+  <!-- tick marks: one per step of the horizon -->
+  <line x1="560" y1="309" x2="1160" y2="309" stroke="#2c313d" stroke-width="7" stroke-dasharray="1.5 22.5" opacity="0.9"/>
+  <line x1="544" y1="308" x2="1168" y2="308" stroke="#2c313d" stroke-width="1.5"/>
+
+  <!-- stepped series: stocks as stacked flowing lines (area fills at low opacity) -->
+  <!-- stock: preTax (growth @ 7%/year) -->
+  <path d="M560,272 H584 V264 H608 V267 H632 V256 H656 V252 H680 V244 H704 V249 H728 V237 H752 V229 H776 V233 H800 V221 H824 V214 H848 V218 H872 V206 H896 V199 H920 V203 H944 V191 H968 V183 H992 V188 H1016 V176 H1040 V169 H1064 V173 H1088 V161 H1112 V153 H1136 V146 H1160 V305 H560 Z"
+        fill="#8ab4ff" opacity="0.10"/>
+  <path d="M560,272 H584 V264 H608 V267 H632 V256 H656 V252 H680 V244 H704 V249 H728 V237 H752 V229 H776 V233 H800 V221 H824 V214 H848 V218 H872 V206 H896 V199 H920 V203 H944 V191 H968 V183 H992 V188 H1016 V176 H1040 V169 H1064 V173 H1088 V161 H1112 V153 H1136 V146 H1160"
+        fill="none" stroke="#8ab4ff" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- stock: derived wobble curve -->
+  <path d="M560,258 H584 V252 H608 V255 H632 V246 H656 V250 H680 V240 H704 V244 H728 V234 H752 V228 H776 V232 H800 V222 H824 V216 H848 V220 H872 V209 H896 V202 H920 V206 H944 V196 H968 V188 H992 V193 H1016 V182 H1040 V176 H1064 V180 H1088 V170 H1112 V163 H1136 V158 H1160 V305 H560 Z"
+        fill="#5bdcd0" opacity="0.08"/>
+  <path d="M560,258 H584 V252 H608 V255 H632 V246 H656 V250 H680 V240 H704 V244 H728 V234 H752 V228 H776 V232 H800 V222 H824 V216 H848 V220 H872 V209 H896 V202 H920 V206 H944 V196 H968 V188 H992 V193 H1016 V182 H1040 V176 H1064 V180 H1088 V170 H1112 V163 H1136 V158 H1160"
+        fill="none" stroke="#5bdcd0" stroke-width="2" stroke-linejoin="round" opacity="0.85"/>
+  <!-- stock: cash (cash interest @ 1.5%/year, drifting down) -->
+  <path d="M560,288 H584 V289 H608 V288 H632 V290 H656 V291 H680 V290 H704 V292 H728 V293 H752 V292 H776 V294 H800 V295 H824 V294 H848 V296 H872 V297 H896 V296 H920 V298 H944 V297 H968 V299 H992 V300 H1016 V299 H1040 V301 H1064 V300 H1088 V302 H1112 V301 H1136 V303 H1160 V305 H560 Z"
+        fill="#ffab70" opacity="0.09"/>
+  <path d="M560,288 H584 V289 H608 V288 H632 V290 H656 V291 H680 V290 H704 V292 H728 V293 H752 V292 H776 V294 H800 V295 H824 V294 H848 V296 H872 V297 H896 V296 H920 V298 H944 V297 H968 V299 H992 V300 H1016 V299 H1040 V301 H1064 V300 H1088 V302 H1112 V301 H1136 V303 H1160"
+        fill="none" stroke="#ffab70" stroke-width="2" stroke-linejoin="round" opacity="0.8"/>
+
+  <!-- playhead at t=13 of the horizon, with halo + marker on the crossing series -->
+  <line x1="886" y1="52" x2="886" y2="308" stroke="#e8b64c" stroke-width="10" opacity="0.14"/>
+  <line x1="886" y1="52" x2="886" y2="308" stroke="#e8b64c" stroke-width="2"/>
+  <circle cx="886" cy="203" r="4.5" fill="#e8b64c" stroke="#14161b" stroke-width="1.5"/>
+  <circle cx="886" cy="297" r="3" fill="#e8b64c" opacity="0.7"/>
+
+  <!-- wordmark block -->
+  <text x="64" y="106" font-family="ui-monospace, 'JetBrains Mono', 'Cascadia Code', Consolas, monospace" font-size="13" letter-spacing="4" fill="#565b68">DISCRETE-TIME DYNAMICAL SYSTEMS · STOCK-AND-FLOW REPL</text>
+  <text x="60" y="168" filter="url(#titleGlow)" font-family="system-ui, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="60" font-weight="800" letter-spacing="12" fill="#e8b64c">KAIROTRON</text>
+  <text x="64" y="206" font-family="system-ui, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="21" fill="#d8dae0">fold your system across time</text>
+  <text x="64" y="244" font-family="ui-monospace, 'JetBrains Mono', 'Cascadia Code', Consolas, monospace" font-size="15" fill="#6b7280">horizon: { start: 0, end: 720, unit: "month" }</text>
+</svg>
