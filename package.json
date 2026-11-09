@@ -1,0 +1,25 @@
+{
+  "name": "kairotron",
+  "version": "0.1.0",
+  "description": "Text-first REPL for discrete-time dynamical systems (stock-and-flow folds)",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "kairotron": "src/cli.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "run": "tsx src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
