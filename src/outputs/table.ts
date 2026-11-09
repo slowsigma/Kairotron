@@ -17,13 +17,21 @@ function stockNames(history: readonly Snapshot[]): string[] {
   return [...names];
 }
 
+function derivedNames(history: readonly Snapshot[]): string[] {
+  const names = new Set<string>();
+  for (const s of history) for (const k of Object.keys(s.derived)) names.add(k);
+  return [...names];
+}
+
 export function formatTable(history: readonly Snapshot[]): string {
   if (history.length === 0) return "";
   const names = stockNames(history);
-  const header = ["t", ...names];
+  const derived = derivedNames(history);
+  const header = ["t", ...names, ...derived.map((n) => `~${n}`)];
   const rows = history.map((s) => [
     String(s.t),
     ...names.map((n) => fmt(s.stocks[n] ?? 0)),
+    ...derived.map((n) => fmt(s.derived[n] ?? 0)),
   ]);
   const widths = header.map((h, i) =>
     Math.max(h.length, ...rows.map((r) => r[i]!.length)),
@@ -40,10 +48,15 @@ export function formatTable(history: readonly Snapshot[]): string {
 export function formatCsv(history: readonly Snapshot[]): string {
   if (history.length === 0) return "";
   const names = stockNames(history);
+  const derived = derivedNames(history);
   const rows = [
-    ["t", ...names].join(","),
+    ["t", ...names, ...derived].join(","),
     ...history.map((s) =>
-      [String(s.t), ...names.map((n) => String(s.stocks[n] ?? 0))].join(","),
+      [
+        String(s.t),
+        ...names.map((n) => String(s.stocks[n] ?? 0)),
+        ...derived.map((n) => String(s.derived[n] ?? 0)),
+      ].join(","),
     ),
   ];
   return rows.join("\n");

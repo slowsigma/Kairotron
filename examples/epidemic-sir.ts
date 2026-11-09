@@ -1,4 +1,4 @@
-import { every, model, pct, rate, transfer, when } from "../src/dsl/model.js";
+import { derived, every, model, pct, rate, transfer, when } from "../src/dsl/model.js";
 
 // Daily SIR epidemic. Standard infection/recovery flows, plus a recurring
 // vaccination campaign (every 7th day) that only runs while there are still
@@ -29,5 +29,10 @@ export default model({
       (c) => c.stocks.susceptible >= c.constants.jabs,
       every(7, transfer("susceptible", "recovered", (c) => c.constants.jabs, "weekly vaccination")),
     ),
+  ],
+  derived: [
+    derived("infectedPercent", (c) => (100 * c.stocks.infected) / N),
+    derived("attackPercent", (c) => (100 * c.stocks.recovered) / N),
+    derived("curedPlusSickPercent", (c) => c.derived.attackPercent + c.derived.infectedPercent),
   ],
 });

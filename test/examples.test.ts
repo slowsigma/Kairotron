@@ -129,3 +129,38 @@ describe("epidemic SIR exemplar", () => {
     expect(jabbed).toEqual([7, 14, 21, 28, 35]);
   });
 });
+
+describe("derived quantities on the exemplars", () => {
+  it("retirement: netWorth sums the stocks; share stays in [0,1]", () => {
+    for (const s of run(retirement)) {
+      expect(s.derived.netWorth).toBeCloseTo(s.stocks.preTax! + s.stocks.cash!, 8);
+      expect(s.derived.preTaxShare).toBeGreaterThanOrEqual(0);
+      expect(s.derived.preTaxShare).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("reservoir: fill fraction tracks capacity", () => {
+    for (const s of run(reservoir)) {
+      expect(s.derived.fillFraction).toBeCloseTo(s.stocks.storage! / 5000, 10);
+    }
+  });
+
+  it("supply-chain: weeks of cover and cumulative fill ratio", () => {
+    const history = run(supplyChain);
+    for (const s of history) {
+      expect(s.derived.weeksCover).toBeCloseTo(s.stocks.inventory! / 100, 10);
+    }
+    expect(history[0]!.derived.fillRatio).toBe(0);
+    expect(history[24]!.derived.fillRatio).toBeCloseTo(history[24]!.stocks.sold! / 2400, 10);
+  });
+
+  it("epidemic SIR: percentages chain off earlier derivations", () => {
+    for (const s of run(epidemicSir)) {
+      expect(s.derived.infectedPercent).toBeCloseTo((100 * s.stocks.infected!) / 10000, 10);
+      expect(s.derived.curedPlusSickPercent).toBeCloseTo(
+        s.derived.attackPercent! + s.derived.infectedPercent!,
+        10,
+      );
+    }
+  });
+});

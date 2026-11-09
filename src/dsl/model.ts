@@ -1,4 +1,6 @@
 import type {
+  DerivedContext,
+  DerivedDef,
   FlowRule,
   Guard,
   GuardedRule,
@@ -49,7 +51,23 @@ export function model(spec: ModelSpec): Model {
       if (!seen.has(target)) throw new Error(`rule '${labelOf(rule)}' references unknown stock '${target}'`);
     }
   }
-  return { horizon, constants: spec.constants ?? {}, stocks: spec.stocks, rules: spec.rules };
+  const reserved = new Set([...Object.keys(spec.stocks), ...Object.keys(spec.constants ?? {}), "t"]);
+  const seenDerived = new Set<string>();
+  for (const def of spec.derived ?? []) {
+    if (!def.name) throw new Error("derived() requires a non-empty name");
+    if (reserved.has(def.name)) {
+      throw new Error(`derived '${def.name}' collides with a stock, constant, or built-in name`);
+    }
+    if (seenDerived.has(def.name)) throw new Error(`duplicate derived name '${def.name}'`);
+    seenDerived.add(def.name);
+  }
+  return {
+    horizon,
+    constants: spec.constants ?? {},
+    stocks: spec.stocks,
+    rules: spec.rules,
+    derived: spec.derived ?? [],
+  };
 }
 
 function labelOf(rule: Rule): string {
@@ -163,4 +181,11 @@ export function laggedDelta(stock: string, ticks: number): (ctx: TickContext) =>
     throw new Error(`laggedDelta() requires a whole number of ticks >= 1 (got ${ticks})`);
   }
   return (c) => c.lag(stock, ticks) - c.lag(stock, ticks + 1);
+}
+
+export function derived(name: string, expr: (ctx: DerivedContext) => number): DerivedDef {
+  if (!name) throw new Error("derived() requires a non-empty name");
+  if (name === "t") throw new Error("derived name 't' is reserved (the built-in tick)");
+  const loc = captureLoc(1);
+  return { name, expr, ...(loc && { loc }) };
 }

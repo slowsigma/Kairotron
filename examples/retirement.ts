@@ -1,4 +1,4 @@
-import { flow, model, pct } from "../src/dsl/model.js";
+import { derived, flow, model, pct } from "../src/dsl/model.js";
 
 // Monthly retirement savings fold: fixed contribution into a growing
 // pre-tax pot, cash sitting on a lower yield. 12 monthly ticks = 1 year.
@@ -17,5 +17,9 @@ export default model({
     flow("preTax", (c) => c.constants.contribution, "monthly contribution"),
     flow("preTax", (c) => c.stocks.preTax * c.perTick("growth"), "growth @ 7%/year"),
     flow("cash", (c) => c.stocks.cash * c.perTick("cashYield"), "interest @ 1.5%/year"),
+  ],
+  derived: [
+    derived("netWorth", (c) => c.stocks.preTax + c.stocks.cash),
+    derived("preTaxShare", (c) => c.stocks.preTax / (c.stocks.preTax + c.stocks.cash)),
   ],
 });

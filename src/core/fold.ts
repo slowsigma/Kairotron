@@ -1,6 +1,7 @@
 import type {
   ConstValue,
   Delta,
+  DerivedContext,
   Horizon,
   Model,
   Rate,
@@ -68,10 +69,54 @@ export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[
   let stocks: Record<string, number> = { ...model.stocks };
   const history: Snapshot[] = [];
 
+  const perTickFn = (name: string): number => {
+    const rate = rateConstants[name];
+    if (!rate) throw new Error(`no rate constant named '${name}'`);
+    return normalizeRate(rate.value, rate.perUnit, horizon.unit);
+  };
+
+  // Read-only projections (plan.md): pure in (stocks, constants, t) plus
+  // earlier derivations — later/unknown references throw, which is what
+  // keeps the derivation graph acyclic by construction.
+  const evaluateDerived = (t: number, values: StockMap): StockMap => {
+    const out: Record<string, number> = {};
+    for (const def of model.derived) {
+      const visible: StockMap = new Proxy(out, {
+        get(target, key) {
+          if (typeof key === "string" && !(key in target)) {
+            const seen = Object.keys(out);
+            const prior = seen.length ? `already defined: ${seen.join(", ")}` : "none defined before it";
+            throw new Error(
+              `derived '${def.name}' reads unknown or forward-referenced derived '${key}' ` +
+                `(derivations must be acyclic; ${prior})`,
+            );
+          }
+          return target[key as string];
+        },
+      });
+      const ctx: DerivedContext = Object.freeze({
+        t,
+        stocks: Object.freeze({ ...values }),
+        derived: visible,
+        constants: Object.freeze({ ...plainConstants }),
+        horizon,
+        tickUnit: horizon.unit,
+        perTick: perTickFn,
+      });
+      const value = def.expr(ctx);
+      if (!Number.isFinite(value)) {
+        throw new Error(`derived '${def.name}' produced non-finite value at t=${t}: ${value}`);
+      }
+      out[def.name] = value;
+    }
+    return out;
+  };
+
   const freeze = (t: number, values: StockMap, deltas: readonly Delta[]): Snapshot =>
     Object.freeze({
       t,
       stocks: Object.freeze({ ...values }),
+      derived: Object.freeze(evaluateDerived(t, values)),
       deltas: Object.freeze(deltas.map((d) => Object.freeze({ ...d }))),
     });
 
@@ -88,11 +133,7 @@ export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[
         constants: Object.freeze({ ...plainConstants }),
         horizon,
         tickUnit: horizon.unit,
-        perTick(name: string): number {
-          const rate = rateConstants[name];
-          if (!rate) throw new Error(`no rate constant named '${name}'`);
-          return normalizeRate(rate.value, rate.perUnit, horizon.unit);
-        },
+        perTick: perTickFn,
         lag(stock: string, ticks: number): number {
           if (!Number.isInteger(ticks) || ticks < 1) {
             throw new Error(`lag requires a whole number of ticks >= 1 (got ${ticks})`);

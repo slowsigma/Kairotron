@@ -47,8 +47,8 @@ Companion research: `docs/Concept-Search.md` (domain math),
 1. **Engine prototype (CLI)** — fold runner + tick units + stock/flow DSL,
    prints a table per tick. ✓ done
 2. **Gating & events** (guarded rules, one-shot/recurring schedules, delays) ✓ done
-3. Derived quantities ← current
-4. Browser REPL + timeline chart + scrubber + code highlighting
+3. **Derived quantities** — read-only projections on every snapshot ✓ done
+4. Browser REPL + timeline chart + scrubber + code highlighting ← current
 5. Branches & what-if
 6. Tick re-normalization + day-count conventions
 7. Calendar overlay (basis + `when(...)`)

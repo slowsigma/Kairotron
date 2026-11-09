@@ -41,6 +41,7 @@ export interface Delta {
 export interface Snapshot {
   readonly t: number;
   readonly stocks: StockMap;
+  readonly derived: StockMap;
   readonly deltas: readonly Delta[];
 }
 
@@ -52,6 +53,22 @@ export interface TickContext {
   readonly tickUnit: TickUnit;
   perTick(name: string): number;
   lag(stock: string, ticks: number): number;
+}
+
+export interface DerivedContext {
+  readonly t: number;
+  readonly stocks: StockMap;
+  readonly derived: StockMap;
+  readonly constants: Readonly<Record<string, number>>;
+  readonly horizon: Horizon;
+  readonly tickUnit: TickUnit;
+  perTick(name: string): number;
+}
+
+export interface DerivedDef {
+  readonly name: string;
+  readonly expr: (ctx: DerivedContext) => number;
+  readonly loc?: SourceLocation;
 }
 
 export type Guard = (ctx: TickContext) => boolean;
@@ -99,9 +116,11 @@ export interface ModelSpec {
   readonly constants?: Readonly<Record<string, ConstValue>>;
   readonly stocks: Readonly<Record<string, number>>;
   readonly rules: readonly Rule[];
+  readonly derived?: readonly DerivedDef[];
 }
 
 export interface Model extends ModelSpec {
   readonly horizon: Horizon;
   readonly constants: Readonly<Record<string, ConstValue>>;
+  readonly derived: readonly DerivedDef[];
 }
