@@ -1,4 +1,4 @@
-import type { Snapshot } from "../core/types.js";
+import type { Branch, Snapshot } from "../core/types.js";
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US", {
@@ -23,16 +23,7 @@ function derivedNames(history: readonly Snapshot[]): string[] {
   return [...names];
 }
 
-export function formatTable(history: readonly Snapshot[]): string {
-  if (history.length === 0) return "";
-  const names = stockNames(history);
-  const derived = derivedNames(history);
-  const header = ["t", ...names, ...derived.map((n) => `~${n}`)];
-  const rows = history.map((s) => [
-    String(s.t),
-    ...names.map((n) => fmt(s.stocks[n] ?? 0)),
-    ...derived.map((n) => fmt(s.derived[n] ?? 0)),
-  ]);
+function aligned(header: readonly string[], rows: readonly (readonly string[])[]): string {
   const widths = header.map((h, i) =>
     Math.max(h.length, ...rows.map((r) => r[i]!.length)),
   );
@@ -43,6 +34,43 @@ export function formatTable(history: readonly Snapshot[]): string {
     widths.map((w) => "-".repeat(w)).join("  "),
     ...rows.map((r) => line(r)),
   ].join("\n");
+}
+
+export function formatTable(history: readonly Snapshot[]): string {
+  if (history.length === 0) return "";
+  const names = stockNames(history);
+  const derived = derivedNames(history);
+  const header = ["t", ...names, ...derived.map((n) => `~${n}`)];
+  const rows = history.map((s) => [
+    String(s.t),
+    ...names.map((n) => fmt(s.stocks[n] ?? 0)),
+    ...derived.map((n) => fmt(s.derived[n] ?? 0)),
+  ]);
+  return aligned(header, rows);
+}
+
+// Tick-by-tick what-if diff: branch minus trunk, only after the fork point
+// (the shared prefix is diff-zero by construction). A "—" marks a stock the
+// variant introduced, or a tick past the trunk's end, with nothing to
+// subtract.
+export function formatDiff(base: readonly Snapshot[], branch: Branch): string {
+  if (branch.snapshots.length === 0) return "";
+  const names = stockNames(branch.snapshots);
+  const baseAt = new Map(base.map((s) => [s.t, s]));
+  const after = branch.snapshots.filter((s) => s.t > branch.forkT);
+  if (after.length === 0) return "";
+  const rows = after.map((s) => {
+    const b = baseAt.get(s.t);
+    return [
+      String(s.t),
+      ...names.map((n) => {
+        const v = s.stocks[n];
+        const bv = b?.stocks[n];
+        return v === undefined || bv === undefined ? "—" : fmtSigned(v - bv);
+      }),
+    ];
+  });
+  return aligned(["t", ...names.map((n) => `Δ${n}`)], rows);
 }
 
 // RFC 4180: quote fields containing commas, quotes, or line breaks, doubling

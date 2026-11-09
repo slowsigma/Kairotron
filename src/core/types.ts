@@ -124,3 +124,16 @@ export interface Model extends ModelSpec {
   readonly constants: Readonly<Record<string, ConstValue>>;
   readonly derived: readonly DerivedDef[];
 }
+
+export interface ForkSpec {
+  readonly horizon?: Horizon;
+  readonly stocks?: Readonly<Record<string, number>>;
+  readonly label?: string;
+}
+
+export interface Branch {
+  readonly label: string;
+  readonly forkT: number;
+  readonly horizon: Horizon;
+  readonly snapshots: readonly Snapshot[];
+}

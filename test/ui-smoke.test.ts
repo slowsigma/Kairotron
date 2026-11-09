@@ -67,4 +67,40 @@ describe("browser REPL end to end (jsdom)", () => {
     expect(pre).toContain("preTax");
     expect(pre).toContain("~netWorth");
   });
+
+  it("forks at the playhead, diverges the variant, diffs it, and discards it", () => {
+    const slider = doc().querySelector("#slider") as HTMLInputElement;
+    slider.value = "10";
+    slider.dispatchEvent(new dom.window.Event("input"));
+    el("#fork").click();
+    expect(el("#status").textContent).toMatch(/b1 forked at t=10/);
+    expect(el("#branchbar").hidden).toBe(false);
+    expect(all("#branchbar .chip").map((c) => c.dataset.label)).toEqual(["main", "b1"]);
+
+    // edit the now-active branch's buffer: raise the contribution rate
+    const ta = doc().querySelector("#editor textarea") as HTMLTextAreaElement;
+    ta.value = ta.value.replace("rate(4000", "rate(5000");
+    el("#run").click();
+    expect(el("#status").textContent).toMatch(/^b1 · ok — 40 ticks/);
+
+    // the trunk's continuation ghosts behind the branch, with a fork marker
+    expect(el("#stocks-chart").innerHTML).toContain('stroke-dasharray="4 3"');
+    expect(el("#stocks-chart").innerHTML).toContain('class="fork"');
+    expect(el("#diff-pane").hidden).toBe(false);
+    expect(el("#diff-chart").innerHTML).toContain("<polyline");
+    expect(el("#diff-legend").textContent).toContain("ΔpreTax");
+
+    // back to the trunk: buffers swap per branch, the Δ pane hides
+    all("#branchbar .chip")[0].click();
+    expect((doc().querySelector("#editor textarea") as HTMLTextAreaElement).value).toContain("rate(4000");
+    expect(el("#diff-pane").hidden).toBe(true);
+
+    // the branch keeps its edit while it lives; × discards it for good
+    all("#branchbar .chip")[1].click();
+    expect((doc().querySelector("#editor textarea") as HTMLTextAreaElement).value).toContain("rate(5000");
+    all("#branchbar .chip")[1].querySelector<HTMLElement>(".x")!.click();
+    expect(all("#branchbar .chip")).toHaveLength(1);
+    expect(el("#branchbar").hidden).toBe(true);
+    expect(el("#diff-pane").hidden).toBe(true);
+  });
 });

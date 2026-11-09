@@ -25,10 +25,14 @@ npm install
 # Text-first: run an example model in the CLI
 npx tsx src/cli.ts examples/retirement.ts --flows
 
+# What-if: fork a branch at tick 6 where a raise lifts the contribution
+npx tsx src/cli.ts examples/retirement.ts --fork-at 6 \
+  --variant examples/retirement-boost.ts --diff
+
 # Browser REPL: live editor + timeline chart + scrubber + code highlighting
 npm run dev        # serves web/ with Vite
 
-# Tests (71, incl. numeric verification against hand-rolled loops)
+# Tests (87, incl. numeric verification against hand-rolled loops)
 npm test
 ```
 
@@ -112,6 +116,10 @@ The whole engine is `reduce` over ticks: `s_t = step(s_{t-1}, t, params)`.
 - **Gating, schedules, delays.** Rules compose: `when(guard, rule)`,
   `unless(...)`, `every(7, ...)`, `once(t, ...)`, `between(a, b, ...)`, and
   `lagged(stock, n)` for dependencies on earlier snapshots.
+- **Branches are free.** `fork(history, t, variantModel)` continues the fold from
+  any snapshot with a different rule set — the shared prefix is the *same* frozen
+  snapshots, `lagged` reads across the fork point into the trunk, and a variant
+  can even run past the trunk's horizon. Retire at 60 vs 65 costs no copies.
 - **Deterministic by default.** Monte Carlo is an opt-in mode on the roadmap,
   not the default execution model.
 
@@ -123,6 +131,7 @@ Realistic exemplars, each verified tick-by-tick against a hand-rolled loop in
 | Model | Domain | What it exercises |
 |---|---|---|
 | [`retirement.ts`](examples/retirement.ts) | personal finance | rates with per-units, derived projections |
+| [`retirement-boost.ts`](examples/retirement-boost.ts) | personal finance | what-if fork of the model above (raise at tick 6) |
 | [`reservoir.ts`](examples/reservoir.ts) | hydrology | monthly rates on daily ticks, proportional evaporation |
 | [`epidemic-sir.ts`](examples/epidemic-sir.ts) | epidemiology | stock↔stock transfers, guarded recurring schedules |
 | [`supply-chain.ts`](examples/supply-chain.ts) | operations | delays, conservation of units, bullwhip oscillation |
@@ -135,6 +144,11 @@ stocks. Scrub the playhead (or use the arrow keys) and the editor highlights
 [`withLoc` trick](https://strudel.cc/learn/visual-feedback/), aimed at data.
 Tab through the inspector for the full state vector at any tick, and export
 the history as CSV or JSON.
+
+**⑂ Fork** branches the timeline at the playhead: the branch gets its own editor
+buffer, the trunk's continuation ghosts behind it as dashed lines, and a Δ-pane
+plots branch-minus-trunk — the what-if answer, per stock, per tick. Branch chips
+switch timelines; re-running the trunk re-forks them automatically.
 
 Zero runtime dependencies: the engine imports unchanged from `src/`, the UI is
 vanilla TypeScript over SVG.
@@ -160,7 +174,7 @@ Milestones from [`docs/plan.md`](docs/plan.md):
 - [x] Gating & events — guards, one-shot / recurring schedules, delays
 - [x] Derived quantities — read-only projections on every snapshot
 - [x] Browser REPL — editor, stacked timeline, scrubber, code highlighting
-- [ ] Branches & what-if — fork from any snapshot (free, because states never mutate)
+- [x] Branches & what-if — fork from any snapshot (free, because states never mutate)
 - [ ] Tick re-normalization — same model, new tick unit; day-count conventions
 - [ ] Calendar overlay — basis constant + calendar display and gating
 - [ ] Monte Carlo mode — random rate sequences, worker pool, percentile bands

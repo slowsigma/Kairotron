@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { run } from "../src/core/fold.js";
-import { formatCsv, formatFlows, formatTable } from "../src/outputs/table.js";
+import { fork, run } from "../src/core/fold.js";
+import { formatCsv, formatDiff, formatFlows, formatTable } from "../src/outputs/table.js";
 import { flow, model } from "../src/dsl/model.js";
 
 const simple = () =>
@@ -60,5 +60,36 @@ describe("table/flows renderers are unchanged for tame output", () => {
     expect(out).toContain("t=1");
     expect(out).toContain("+10.00  pot          save  @");
     expect(out).toBe(out.trimEnd());
+  });
+});
+
+describe("formatDiff", () => {
+  it("prints branch-minus-trunk deltas only after the fork point", () => {
+    const trunk = simple(); // pot +10/tick
+    const variant = model({
+      horizon: { start: 0, end: 3, unit: "month" },
+      stocks: { pot: 0 },
+      rules: [flow("pot", 25, "save harder")],
+    });
+    const branch = fork(trunk, 2, variant);
+    const lines = formatDiff(trunk, branch).split("\n");
+    expect(lines[0]!.trim().replace(/\s+/g, ",")).toBe("t,Δpot");
+    // one divergent tick (t=3): +25 on the branch vs +10 on the trunk
+    expect(lines.slice(2).map((l) => l.trim().replace(/\s+/g, ","))).toEqual([
+      "3,+15.00",
+    ]);
+  });
+
+  it("marks a dash where the trunk has no tick to subtract", () => {
+    const trunk = simple(); // ends at t=3
+    const longer = model({
+      horizon: { start: 0, end: 5, unit: "month" },
+      stocks: { pot: 0 },
+      rules: [flow("pot", 10, "save")],
+    });
+    const branch = fork(trunk, 3, longer);
+    const lines = formatDiff(trunk, branch).split("\n");
+    expect(lines[2]!.trim().replace(/\s+/g, ",")).toBe("4,—");
+    expect(lines[3]!.trim().replace(/\s+/g, ",")).toBe("5,—");
   });
 });

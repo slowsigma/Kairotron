@@ -10,6 +10,7 @@
     <header>
       <span class="brand">Kairotron</span>
       <button id="run" title="Run (Ctrl+Enter)">&#9654; Run</button>
+      <button id="fork" title="Fork a what-if branch at the playhead">&#9106; Fork</button>
       <label>start <input id="h-start" size="4" placeholder="auto" /></label>
       <label>end <input id="h-end" size="5" placeholder="auto" /></label>
       <label>unit
@@ -36,12 +37,17 @@
       <button id="exp-json" title="Download JSON">JSON</button>
       <span id="status"></span>
     </header>
+    <div id="branchbar" hidden></div>
     <main>
       <section id="editor-pane"><div id="editor"></div></section>
       <section id="view-pane">
         <div class="pane">
           <svg id="stocks-chart" viewBox="0 0 900 280" preserveAspectRatio="none"></svg>
           <div id="stocks-legend" class="legend"></div>
+        </div>
+        <div class="pane" id="diff-pane" hidden>
+          <svg id="diff-chart" viewBox="0 0 900 150" preserveAspectRatio="none"></svg>
+          <div id="diff-legend" class="legend"></div>
         </div>
         <div class="pane" id="derived-pane">
           <svg id="derived-chart" viewBox="0 0 900 150" preserveAspectRatio="none"></svg>

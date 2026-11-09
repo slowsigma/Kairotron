@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { run } from "../src/core/fold.js";
+import { fork, run } from "../src/core/fold.js";
 import epidemicSir from "../examples/epidemic-sir.js";
 import retirement from "../examples/retirement.js";
+import retirementBoost from "../examples/retirement-boost.js";
 import reservoir from "../examples/reservoir.js";
 import supplyChain from "../examples/supply-chain.js";
 
@@ -36,6 +37,28 @@ describe("retirement exemplar", () => {
     // one annual tick: contribution applies once at full size, growth is 7%
     const expected = (120000 + 2750) * 1.07;
     expect(yearly[1]!.stocks.preTax).toBeCloseTo(expected, 8);
+  });
+});
+
+describe("retirement what-if fork", () => {
+  it("the boosted branch matches a hand-rolled loop from the fork tick on", () => {
+    const trunk = run(retirement);
+    const branch = fork(trunk, 6, retirementBoost, { label: "boost" });
+    expect(branch.snapshots[6]).toBe(trunk[6]); // shared prefix — forking is free
+    let preTax = trunk[6]!.stocks.preTax!;
+    let cash = trunk[6]!.stocks.cash!;
+    const i = 0.07 / 12;
+    const j = 0.015 / 12;
+    for (let t = 7; t <= 24; t++) {
+      preTax = (preTax + 3500) * (1 + i);
+      cash = cash * (1 + j);
+      expect(branch.snapshots[t]!.stocks.preTax).toBeCloseTo(preTax, 8);
+      expect(branch.snapshots[t]!.stocks.cash).toBeCloseTo(cash, 8);
+    }
+    // the raise compounds: strictly ahead, and the branch outlives the trunk
+    expect(branch.snapshots[12]!.stocks.preTax!).toBeGreaterThan(trunk[12]!.stocks.preTax!);
+    expect(trunk).toHaveLength(13); // the trunk horizon is untouched
+    expect(branch.snapshots).toHaveLength(25);
   });
 });
 

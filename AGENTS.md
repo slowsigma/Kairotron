@@ -50,8 +50,8 @@ Companion research: `docs/Concept-Search.md` (domain math),
 3. **Derived quantities** — read-only projections on every snapshot ✓ done
 4. **Browser REPL + visualization** — editor + run + stacked timeline chart +
    scrubber + playhead-linked code highlighting ✓ done
-5. Branches & what-if ← current
-6. Tick re-normalization + day-count conventions
+5. Branches & what-if — fork from snapshot, Δ-vs-trunk overlay ✓ done
+6. Tick re-normalization + day-count conventions ← current
 7. Calendar overlay (basis + `when(...)`)
 8. Monte Carlo mode
 

@@ -1,7 +1,9 @@
 import type {
+  Branch,
   ConstValue,
   Delta,
   DerivedContext,
+  ForkSpec,
   Horizon,
   Model,
   Rate,
@@ -51,6 +53,47 @@ export function scheduleFires(spec: ScheduleSpec, t: number, tickUnit: TickUnit)
 export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[] {
   const horizon = horizonOverride ?? model.horizon;
   if (!horizon) throw new Error("model has no horizon and none was passed to run()");
+  return fold(model, horizon);
+}
+
+// Branches & what-if: fork a fold at any committed snapshot. The branch
+// shares the trunk's prefix snapshots by reference (states never mutate, so
+// forking is free — Concept-Search.md), and lag() reads through the fork
+// point into the shared trunk history.
+export function fork(
+  trunk: readonly Snapshot[],
+  atT: number,
+  model: Model,
+  spec: ForkSpec = {},
+): Branch {
+  if (trunk.length === 0) throw new Error("fork() requires a non-empty history to fork from");
+  if (!Number.isInteger(atT)) throw new Error(`fork point must be an integer tick (got ${atT})`);
+  const idx = trunk.findIndex((s) => s.t === atT);
+  if (idx === -1) {
+    throw new Error(
+      `fork point t=${atT} is not in the history (${trunk[0]!.t}..${trunk[trunk.length - 1]!.t})`,
+    );
+  }
+  const horizon = spec.horizon ?? model.horizon;
+  if (!horizon) throw new Error("forked model has no horizon and none was passed in the fork spec");
+  if (atT < horizon.start) {
+    throw new Error(`fork point t=${atT} is before the branch horizon start (${horizon.start})`);
+  }
+  if (atT >= horizon.end) {
+    throw new Error(
+      `fork point t=${atT} must be before the branch horizon end (${horizon.end}) — nothing left to run`,
+    );
+  }
+  const snapshots = fold(model, horizon, { prefix: trunk.slice(0, idx + 1), stocks: spec.stocks });
+  return Object.freeze({ label: spec.label ?? "branch", forkT: atT, horizon, snapshots });
+}
+
+interface FoldSeed {
+  readonly prefix: readonly Snapshot[];
+  readonly stocks?: Readonly<Record<string, number>> | undefined;
+}
+
+function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapshot[] {
   const { start, end } = horizon;
   if (!Number.isInteger(start) || !Number.isInteger(end)) {
     throw new Error(`horizon bounds must be integer tick counts (got ${start}..${end})`);
@@ -66,7 +109,11 @@ export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[
     else plainConstants[name] = value;
   }
 
-  let stocks: Record<string, number> = { ...model.stocks };
+  // Seeded folds take the state from the fork snapshot; a variant model may
+  // still introduce new stocks, which enter at their declared initial value.
+  let stocks: Record<string, number> = seed
+    ? { ...model.stocks, ...seed.prefix[seed.prefix.length - 1]!.stocks }
+    : { ...model.stocks };
   const history: Snapshot[] = [];
 
   const perTickFn = (name: string): number => {
@@ -120,9 +167,33 @@ export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[
       deltas: Object.freeze(deltas.map((d) => Object.freeze({ ...d }))),
     });
 
-  history.push(freeze(start, stocks, []));
+  if (seed) {
+    history.push(...seed.prefix);
+    const head = history[history.length - 1]!;
+    if (seed.stocks && Object.keys(seed.stocks).length > 0) {
+      for (const [name, value] of Object.entries(seed.stocks)) {
+        if (!Number.isFinite(value)) {
+          throw new Error(`fork override '${name}' must be finite (got ${value})`);
+        }
+      }
+      stocks = { ...stocks, ...seed.stocks };
+      const deltas: Delta[] = Object.entries(seed.stocks).map(([stock, amount]) => ({
+        stock,
+        amount: amount - (head.stocks[stock] ?? 0),
+        rule: `fork @t=${head.t}`,
+      }));
+      history[history.length - 1] = freeze(head.t, stocks, deltas);
+    }
+  } else {
+    history.push(freeze(start, stocks, []));
+  }
 
-  for (let t = start + 1; t <= end; t++) {
+  // Absolute-tick anchor for lag lookups: index 0 of the branch's history is
+  // the trunk's S0 for forks, the model's own S0 otherwise.
+  const t0 = history[0]!.t;
+  const from = history[history.length - 1]!.t;
+
+  for (let t = from + 1; t <= end; t++) {
     const next: Record<string, number> = { ...stocks };
     const deltas: Delta[] = [];
 
@@ -140,11 +211,13 @@ export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[
           }
           // With input validation done, the lookup can only land inside the
           // committed history except at the leading edge: a lag reaching back
-          // before the horizon start has no snapshot to read, so it clamps to
-          // S0 (the initial state) by design — that dichotomy is pinned by
-          // the "lags reaching before S0 clamp" test in test/gating.test.ts.
+          // before the branch's first snapshot has nothing to read, so it
+          // clamps to that snapshot by design — S0 for plain runs, the trunk's
+          // S0 for forks past the horizon start. Lags across a fork point
+          // read the shared prefix. That dichotomy is pinned by the
+          // "lags reaching before S0 clamp" test in test/gating.test.ts.
           const committed = history.length - 1;
-          const index = Math.max(t - ticks - start, 0);
+          const index = Math.max(t - ticks - t0, 0);
           const clamped = Math.min(index, committed);
           const value = history[clamped]?.stocks[stock];
           if (value === undefined) {

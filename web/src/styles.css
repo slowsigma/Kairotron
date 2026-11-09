@@ -54,6 +54,34 @@ button:hover { border-color: var(--accent); }
 #status { color: var(--dim); font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45ch; }
 #status.err { color: var(--error); }
 
+#fork { color: #c39bf5; }
+#branchbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--dim);
+}
+#branchbar .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 10px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--mono);
+}
+#branchbar .chip:hover { border-color: var(--accent); }
+#branchbar .chip.active { border-color: #c39bf5; color: #c39bf5; }
+#branchbar .chip .x { color: var(--dim); padding: 0 2px; cursor: pointer; }
+#branchbar .chip .x:hover { color: var(--error); }
+
 main {
   flex: 1;
   display: grid;
@@ -124,6 +152,7 @@ svg text { font: 11px var(--mono); fill: var(--dim); }
 svg .grid { stroke: var(--border); stroke-width: 1; }
 svg .playhead { stroke: var(--accent); stroke-width: 1.5; }
 svg .zero { stroke: var(--dim); stroke-dasharray: 3 3; stroke-width: 1; }
+svg .fork { stroke: #c39bf5; stroke-dasharray: 5 4; stroke-width: 1.2; }
 
 #scrub { display: flex; align-items: center; gap: 10px; padding: 0 4px; }
 #slider { flex: 1; accent-color: var(--accent); }
