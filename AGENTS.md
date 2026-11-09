@@ -48,8 +48,9 @@ Companion research: `docs/Concept-Search.md` (domain math),
    prints a table per tick. ✓ done
 2. **Gating & events** (guarded rules, one-shot/recurring schedules, delays) ✓ done
 3. **Derived quantities** — read-only projections on every snapshot ✓ done
-4. Browser REPL + timeline chart + scrubber + code highlighting ← current
-5. Branches & what-if
+4. **Browser REPL + visualization** — editor + run + stacked timeline chart +
+   scrubber + playhead-linked code highlighting ✓ done
+5. Branches & what-if ← current
 6. Tick re-normalization + day-count conventions
 7. Calendar overlay (basis + `when(...)`)
 8. Monte Carlo mode
@@ -62,3 +63,8 @@ Companion research: `docs/Concept-Search.md` (domain math),
   core; stocks/rules are user-named.
 - Test with realistic exemplar models (e.g. a retirement cashflow, a reservoir)
   rather than toy one-liners; numerical checks belong next to the fold tests.
+- Browser REPL lives in `web/` (Vite + vanilla TS, zero runtime deps; the engine
+  is imported unchanged and stays UI-free). Model code runs via `new Function`
+  with the DSL in scope; provenance line-mapping is calibrated at compile time.
+  `npm run dev` serves it, `npm run build` bundles it, UI wiring is smoke-tested
+  under jsdom (`test/ui-smoke.test.ts`).

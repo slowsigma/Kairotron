@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kairotron REPL</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <header>
+      <span class="brand">Kairotron</span>
+      <button id="run" title="Run (Ctrl+Enter)">&#9654; Run</button>
+      <label>start <input id="h-start" size="4" placeholder="auto" /></label>
+      <label>end <input id="h-end" size="5" placeholder="auto" /></label>
+      <label>unit
+        <select id="h-unit">
+          <option value="">auto</option>
+          <option>year</option>
+          <option>quarter</option>
+          <option>month</option>
+          <option>week</option>
+          <option>day</option>
+          <option>hour</option>
+          <option>minute</option>
+          <option>second</option>
+        </select>
+      </label>
+      <label>stocks
+        <select id="chart-mode">
+          <option value="stacked">stacked</option>
+          <option value="lines">lines</option>
+        </select>
+      </label>
+      <span class="spacer"></span>
+      <button id="exp-csv" title="Download CSV">CSV</button>
+      <button id="exp-json" title="Download JSON">JSON</button>
+      <span id="status"></span>
+    </header>
+    <main>
+      <section id="editor-pane"><div id="editor"></div></section>
+      <section id="view-pane">
+        <div class="pane">
+          <svg id="stocks-chart" viewBox="0 0 900 280" preserveAspectRatio="none"></svg>
+          <div id="stocks-legend" class="legend"></div>
+        </div>
+        <div class="pane" id="derived-pane">
+          <svg id="derived-chart" viewBox="0 0 900 150" preserveAspectRatio="none"></svg>
+          <div id="derived-legend" class="legend"></div>
+        </div>
+        <div id="scrub">
+          <input id="slider" type="range" min="0" max="0" step="1" value="0" />
+          <span id="playhead-label"></span>
+        </div>
+        <div id="lower">
+          <div id="tabs">
+            <button data-tab="inspector" class="active">Inspector</button>
+            <button data-tab="table">Table</button>
+          </div>
+          <div id="tab-body"></div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

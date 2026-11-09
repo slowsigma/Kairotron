@@ -10,13 +10,19 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "run": "tsx src/cli.ts"
   },
   "devDependencies": {
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.6",
+    "jsdom": "^31.0.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
+    "vite": "^8.3.7",
     "vitest": "^5.1.0"
   },
   "allowScripts": {
