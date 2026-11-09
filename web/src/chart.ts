@@ -29,7 +29,16 @@ const PT = 10;
 const PB = 20;
 
 export const chartNames = (snap: Snapshot): string[] => Object.keys(snap.stocks);
-export const derivedNames = (snap: Snapshot): string[] => Object.keys(snap.derived);
+
+// Derivations can also be introduced mid-run (a fork variant adding one), so
+// the derived pane must union across snapshots like stockNamesOf does — the
+// first snapshot is the trunk's S0 for branches and says nothing about what
+// the variant computes later.
+export function derivedNamesOf(history: readonly Snapshot[]): string[] {
+  const names = new Set<string>();
+  for (const s of history) for (const k of Object.keys(s.derived)) names.add(k);
+  return [...names];
+}
 
 // Union across snapshots, first-appearance order: a fork branch carries the
 // trunk's stocks in its shared prefix and a variant may add new ones, and
@@ -209,10 +218,12 @@ export function renderDerived(
     svg.innerHTML = "";
     return [];
   }
-  const names = derivedNames(history[0]);
+  const names = derivedNamesOf(history);
   const visible = names.filter((n) => !hidden.has(n));
+  // Hide the pane when the model derives nothing — and restore it when a run
+  // re-introduces derived values (a bare `display:none` had no way back).
   const pane = document.getElementById("derived-pane");
-  if (names.length === 0 && pane) pane.style.display = "none";
+  if (pane) pane.style.display = names.length === 0 ? "none" : "";
   const { t0, tN } = visibleSpan(history, ghost);
   const paths: string[] = [];
   if (visible.length > 0) {

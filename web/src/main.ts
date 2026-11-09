@@ -163,11 +163,13 @@ function stockValues(): string {
 }
 
 function renderLegend(root: HTMLElement, entries: { name: string; color: string; value: number }[]): void {
+  // Stock names are arbitrary user strings and become attribute values here,
+  // so escape them including quotes (an unescaped `"` injects attributes).
   root.innerHTML = entries
     .map(
       (e) =>
-        `<span class="item${state.hidden.has(e.name.replace(/^~/, "").replace(/^Δ/, "")) ? " off" : ""}" data-name="${e.name}">` +
-        `<span class="swatch" style="background:${e.color}"></span>${e.name} <span class="val">${fmtNum(e.value)}</span></span>`,
+        `<span class="item${state.hidden.has(e.name.replace(/^~/, "").replace(/^Δ/, "")) ? " off" : ""}" data-name="${escapeHtml(e.name)}">` +
+        `<span class="swatch" style="background:${e.color}"></span>${escapeHtml(e.name)} <span class="val">${fmtNum(e.value)}</span></span>`,
     )
     .join("");
   root.querySelectorAll<HTMLElement>(".item").forEach((el) => {
@@ -349,7 +351,7 @@ function discardBranch(id: number): void {
 }
 
 const escapeHtml = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 function download(name: string, text: string, mime: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));

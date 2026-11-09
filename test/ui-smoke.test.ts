@@ -77,11 +77,19 @@ describe("browser REPL end to end (jsdom)", () => {
     expect(el("#branchbar").hidden).toBe(false);
     expect(all("#branchbar .chip").map((c) => c.dataset.label)).toEqual(["main", "b1"]);
 
-    // edit the now-active branch's buffer: raise the contribution rate
+    // edit the now-active branch's buffer: raise the contribution rate and add
+    // a derivation only the variant computes
     const ta = doc().querySelector("#editor textarea") as HTMLTextAreaElement;
     ta.value = ta.value.replace("rate(4000", "rate(5000");
+    ta.value = ta.value.replace(
+      'derived("preTaxShare"',
+      'derived("hop", (c) => c.stocks.preTax * 2),\n    derived("preTaxShare"',
+    );
     el("#run").click();
     expect(el("#status").textContent).toMatch(/^b1 · ok — 40 ticks/);
+    // the variant's derived value must appear even though the branch's first
+    // snapshot (the trunk's S0) doesn't carry it — the pane unions across runs
+    expect(all("#derived-legend .item").map((i) => i.dataset.name)).toContain("~hop");
 
     // the trunk's continuation ghosts behind the branch, with a fork marker
     expect(el("#stocks-chart").innerHTML).toContain('stroke-dasharray="4 3"');
@@ -102,5 +110,38 @@ describe("browser REPL end to end (jsdom)", () => {
     expect(all("#branchbar .chip")).toHaveLength(1);
     expect(el("#branchbar").hidden).toBe(true);
     expect(el("#diff-pane").hidden).toBe(true);
+  });
+
+  it("hides the derived pane without derivations and restores it when they come back", () => {
+    const ta = doc().querySelector("#editor textarea") as HTMLTextAreaElement;
+    const withDerived = ta.value;
+    // strip the derived block (there are no ']' inside the derivation bodies;
+    // the trailing comma after the block is left intact)
+    ta.value = withDerived.replace(/derived:\s*\[[^\]]*\]/, "derived: []");
+    el("#run").click();
+    expect(el("#status").textContent).toContain("ok —");
+    expect((el("#derived-pane") as HTMLElement).style.display).toBe("none");
+    // re-add one: a bare display:none had no restore path, the pane stayed gone
+    ta.value = ta.value.replace(
+      "derived: [],",
+      'derived: [\n    derived("back", (c) => c.stocks.preTax * 0.9)\n  ],',
+    );
+    el("#run").click();
+    expect(el("#status").textContent).toContain("ok —");
+    expect(el("#derived-chart").innerHTML).toContain("<polyline");
+  });
+
+  it("escapes quotes and markup from user-controlled names in the legend", () => {
+    const ta = doc().querySelector("#editor textarea") as HTMLTextAreaElement;
+    ta.value = ta.value.replace(
+      'derived("back", (c) => c.stocks.preTax * 0.9)',
+      `derived('x"on"><b>i</b>', (c) => c.stocks.preTax * 0.9)`,
+    );
+    el("#run").click();
+    expect(el("#status").textContent).toContain("ok —");
+    const legend = el("#derived-legend");
+    expect(legend.querySelector("b")).toBeNull(); // no injected element
+    expect(legend.innerHTML).toContain("&quot;");
+    expect(legend.querySelector<HTMLElement>(".item")!.dataset.name).toBe('~x"on"><b>i</b>');
   });
 });

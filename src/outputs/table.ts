@@ -41,10 +41,13 @@ export function formatTable(history: readonly Snapshot[]): string {
   const names = stockNames(history);
   const derived = derivedNames(history);
   const header = ["t", ...names, ...derived.map((n) => `~${n}`)];
+  // A fork variant can introduce stocks/derivations mid-run; the shared prefix
+  // genuinely doesn't carry them, so print a dash rather than a fake 0.00.
+  const cell = (v: number | undefined): string => (v === undefined ? "—" : fmt(v));
   const rows = history.map((s) => [
     String(s.t),
-    ...names.map((n) => fmt(s.stocks[n] ?? 0)),
-    ...derived.map((n) => fmt(s.derived[n] ?? 0)),
+    ...names.map((n) => cell(s.stocks[n])),
+    ...derived.map((n) => cell(s.derived[n])),
   ]);
   return aligned(header, rows);
 }

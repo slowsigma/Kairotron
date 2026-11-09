@@ -2,7 +2,7 @@ import type { Snapshot } from "../../src/core/types.js";
 import { fmtNum } from "./chart.js";
 
 const escapeHtml = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export function renderInspector(
   root: HTMLElement,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fork, run } from "../src/core/fold.js";
 import { formatCsv, formatDiff, formatFlows, formatTable } from "../src/outputs/table.js";
-import { flow, model } from "../src/dsl/model.js";
+import { flow, derived, model } from "../src/dsl/model.js";
 
 const simple = () =>
   run(
@@ -91,5 +91,24 @@ describe("formatDiff", () => {
     const lines = formatDiff(trunk, branch).split("\n");
     expect(lines[2]!.trim().replace(/\s+/g, ",")).toBe("4,—");
     expect(lines[3]!.trim().replace(/\s+/g, ",")).toBe("5,—");
+  });
+});
+
+describe("formatTable across a fork", () => {
+  it("dashes stocks and derivations the variant introduced mid-run, instead of printing a fake 0.00", () => {
+    const trunk = simple();
+    const variant = model({
+      horizon: { start: 0, end: 5, unit: "month" },
+      stocks: { pot: 0, seed: 7 },
+      rules: [flow("pot", 10, "save")],
+      derived: [derived("big", (c) => c.stocks.pot + c.stocks.seed)],
+    });
+    const b = fork(trunk, 3, variant);
+    const lines = formatTable(b.snapshots).split("\n");
+    expect(lines[0]!.trim().replace(/\s+/g, ",")).toBe("t,pot,seed,~big");
+    expect(lines[1]!.trim().replace(/\s+/g, ",")).toBe("-,------,----,------"); // the separator
+    expect(lines[2]!.trim().replace(/\s+/g, ",")).toBe("0,100.00,—,—"); // shared prefix: no seed, no ~big
+    expect(lines[5]!.trim().replace(/\s+/g, ",")).toBe("3,130.00,—,—"); // the fork tick is still the trunk's shared snapshot
+    expect(lines[6]!.trim().replace(/\s+/g, ",")).toBe("4,140.00,7.00,147.00"); // the variant enters on its first tick
   });
 });
