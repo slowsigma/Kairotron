@@ -138,9 +138,15 @@ export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[
           if (!Number.isInteger(ticks) || ticks < 1) {
             throw new Error(`lag requires a whole number of ticks >= 1 (got ${ticks})`);
           }
+          // With input validation done, the lookup can only land inside the
+          // committed history except at the leading edge: a lag reaching back
+          // before the horizon start has no snapshot to read, so it clamps to
+          // S0 (the initial state) by design — that dichotomy is pinned by
+          // the "lags reaching before S0 clamp" test in test/gating.test.ts.
           const committed = history.length - 1;
-          const index = Math.min(Math.max(t - ticks - start, 0), committed);
-          const value = history[index]?.stocks[stock];
+          const index = Math.max(t - ticks - start, 0);
+          const clamped = Math.min(index, committed);
+          const value = history[clamped]?.stocks[stock];
           if (value === undefined) {
             throw new Error(`lag references unknown stock '${stock}'`);
           }

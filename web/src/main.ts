@@ -217,14 +217,12 @@ const attachScrub = (svg: SVGSVGElement): void => {
 attachScrub(stocksSvg);
 attachScrub(derivedSvg);
 
-$("h-unit").addEventListener("change", (e) => {
+$("h-unit").addEventListener("change", () => {
   if (state.history.length) runNow();
-  void e;
 });
 
-$("chart-mode").addEventListener("change", (e) => {
+$("chart-mode").addEventListener("change", () => {
   state.mode = ($("chart-mode") as unknown as HTMLSelectElement).value as ChartMode;
-  void e;
   renderView();
 });
 

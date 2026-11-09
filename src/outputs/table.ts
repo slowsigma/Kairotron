@@ -45,12 +45,18 @@ export function formatTable(history: readonly Snapshot[]): string {
   ].join("\n");
 }
 
+// RFC 4180: quote fields containing commas, quotes, or line breaks, doubling
+// embedded quotes. User-named stocks/derived values can contain any of these.
+function csvField(value: string): string {
+  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
 export function formatCsv(history: readonly Snapshot[]): string {
   if (history.length === 0) return "";
   const names = stockNames(history);
   const derived = derivedNames(history);
   const rows = [
-    ["t", ...names, ...derived].join(","),
+    ["t", ...names, ...derived].map(csvField).join(","),
     ...history.map((s) =>
       [
         String(s.t),

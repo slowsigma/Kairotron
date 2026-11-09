@@ -22,16 +22,29 @@ function toAmountFn(a: Amount): (ctx: TickContext) => number {
   return typeof a === "number" ? () => a : a;
 }
 
+// Best-effort source mapping across engine stack formats without relying on
+// engine internals: V8 frames are "at name (/path/file:line:col)" behind an
+// "Error: msg" header line; Firefox is "name@/path/file:line[:col]" with no
+// header; WebKit is "name@file:line[:col]". depth counts frames above captureLoc.
 function captureLoc(depth = 2): SourceLocation | undefined {
   const stack = new Error().stack;
   if (!stack) return undefined;
-  const frame = stack.split("\n")[depth + 2];
+  const frames = stack.split("\n").filter((l) => l.trim() !== "");
+  if (frames.length === 0) return undefined;
+  const header = /@|\bat /.test(frames[0]!) ? 0 : 1;
+  const frame = frames[header + depth + 1];
   if (!frame) return undefined;
-  const m = frame.match(/\(?([^\s()]+:\d+:\d+)\)?\s*$/);
-  if (!m?.[1]) return undefined;
-  const [file, line, column] = m[1].split(":");
-  if (!file || !line || !column) return undefined;
-  return { file, line: Number(line), column: Number(column) };
+  const m = frame.match(/\(?([^\s()]+?):(\d+)(?::(\d+))?\)?\s*$/);
+  if (!m) return undefined;
+  // Firefox frames are "name@/path/file:line:col" — cut the name. Lazy token
+  // above matters: with a greedy one and WebKit's optional column, the path
+  // swallows ":line" and the reported values shift by one.
+  const file = m[1]!.split("@").pop()!;
+  return {
+    file,
+    line: Number(m[2]!),
+    column: m[3] ? Number(m[3]) : 1,
+  };
 }
 
 export function model(spec: ModelSpec): Model {
@@ -168,6 +181,11 @@ export function between(from: number, to: number, rule: Rule): ScheduledRule {
   const loc = captureLoc(1);
   return { kind: "on", schedule: { kind: "between", from, to }, rule, ...(loc && { loc }) };
 }
+
+// Schedule semantics are integer-tick based; abstract time is the default.
+// NOTE on delays: lag(n) reads the value n ticks ago, clamping at the leading
+// edge — lookups landing before the horizon start read S0 (the initial state),
+// so early-tick lags are defined rather than errors.
 
 export function lagged(stock: string, ticks: number): (ctx: TickContext) => number {
   if (!Number.isInteger(ticks) || ticks < 1) {

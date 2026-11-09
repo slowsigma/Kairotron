@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { run } from "./core/fold.js";
@@ -26,7 +26,7 @@ function usage(code: number): never {
 const args = process.argv.slice(2);
 let csv = false;
 let flows = false;
-let unit: string | undefined;
+let unitOverride: TickUnit | undefined;
 let end: number | undefined;
 const positional: string[] = [];
 
@@ -35,8 +35,13 @@ for (let i = 0; i < args.length; i++) {
   if (arg === "--csv") csv = true;
   else if (arg === "--flows") flows = true;
   else if (arg === "--unit") {
-    unit = args[++i];
-    if (!unit) usage(1);
+    const value = args[++i];
+    if (!value) usage(1);
+    if (!isTickUnit(value)) {
+      console.error(`unknown tick unit: ${value}`);
+      usage(1);
+    }
+    unitOverride = value;
   } else if (arg === "--end") {
     const raw = args[++i];
     end = raw === undefined ? Number.NaN : Number(raw);
@@ -48,17 +53,40 @@ for (let i = 0; i < args.length; i++) {
   } else positional.push(arg);
 }
 
-if (unit !== undefined && !isTickUnit(unit)) {
-  console.error(`unknown tick unit: ${unit}`);
-  usage(1);
-}
-
 const file = positional[0];
 if (!file || positional.length > 1) usage(1);
 
-const mod = (await import(pathToFileURL(resolve(file)).href)) as {
-  default?: Model;
-};
+// Load the user's model file. Models are TypeScript imports deep, so the
+// loading process needs a TS loader. Under tsx (the dev flow) hooks are
+// already active and register() is a no-op to be safe about duplication; the
+// compiled bin runs under plain node, so we register tsx's ESM hook first
+// (registering after a failed import doesn't work — the failure is cached).
+async function importModel(file: string): Promise<{ default?: Model }> {
+  const href = pathToFileURL(resolve(file)).href;
+  let loaderAvailable = false;
+  try {
+    const { register } = await import("tsx/esm/api");
+    register();
+    loaderAvailable = true;
+  } catch {
+    // tsx is not installed; fall through to a plain import (works for JS models).
+  }
+  try {
+    return await import(href);
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e));
+    const code = (err as NodeJS.ErrnoException).code;
+    if (!loaderAvailable && (code === "ERR_MODULE_NOT_FOUND" || code === "ERR_UNKNOWN_FILE_EXTENSION")) {
+      throw new Error(
+        `cannot load '${file}': no TypeScript loader available (install tsx, or run via npx tsx src/cli.ts)`,
+        { cause: err },
+      );
+    }
+    throw err;
+  }
+}
+
+const mod = (await importModel(file)) as { default?: Model };
 const model = mod.default;
 if (!model || typeof model !== "object" || !Array.isArray(model.rules)) {
   console.error(`${file} must default-export a model (built with model({...}) from src/dsl/model.ts)`);
@@ -66,11 +94,11 @@ if (!model || typeof model !== "object" || !Array.isArray(model.rules)) {
 }
 
 let horizon: Horizon | undefined;
-if (unit !== undefined || end !== undefined) {
+if (unitOverride !== undefined || end !== undefined) {
   horizon = {
     start: model.horizon.start,
     end: end ?? model.horizon.end,
-    unit: (unit ?? model.horizon.unit) as TickUnit,
+    unit: unitOverride ?? model.horizon.unit,
   };
 }
 

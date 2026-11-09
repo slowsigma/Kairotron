@@ -24,7 +24,7 @@ const DSL = { model, flow, transfer, rate, pct, when, unless, every, once, betwe
 // user code starts at body line 5. Delta locations then map back to editor
 // lines — the browser analog of Strudel's withLoc → highlight pipeline.
 const PROBE =
-  'var __K = 2; try { null.probe; } catch (e) { const m = String(e.stack).match(/<anonymous>:(\\d+)/); if (m) __K = Number(m[1]) - 3; }';
+  'var __K = 2; try { null.probe; } catch (e) { const m = String(e.stack).match(/(?:<anonymous>|eval code):?(\\d+)?/); if (m && m[1]) __K = Number(m[1]) - 3; }';
 
 export interface Compiled {
   model: Model;
@@ -53,7 +53,7 @@ export function compileModel(code: string): Compiled {
 
 export function userLine(loc: SourceLocation | undefined, compiled: Pick<Compiled, "lineOffset" | "lineCount">): number | undefined {
   if (!loc?.line) return undefined;
-  if (loc.file && !/anonymous|eval/.test(loc.file)) return undefined;
+  if (loc.file && !/anonymous|eval|<unknown>|VM\d+/.test(loc.file)) return undefined;
   const line = loc.line - compiled.lineOffset;
   return line >= 1 && line <= compiled.lineCount ? line : undefined;
 }

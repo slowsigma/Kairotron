@@ -173,4 +173,4 @@ Milestones from [`docs/plan.md`](docs/plan.md):
 
 ## License
 
-MIT — see [`package.json`](package.json).
+MIT — see [`LICENSE`](LICENSE).

@@ -4,8 +4,14 @@
   "description": "Text-first REPL for discrete-time dynamical systems (stock-and-flow folds)",
   "type": "module",
   "license": "MIT",
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "README.md"
+  ],
   "bin": {
-    "kairotron": "src/cli.ts"
+    "kairotron": "bin/cli.js"
   },
   "scripts": {
     "test": "vitest run",
@@ -13,14 +19,18 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p web",
     "dev": "vite",
     "build": "vite build",
+    "build:bin": "tsc -p tsconfig.bin.json",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build:bin",
     "preview": "vite preview",
     "run": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.6.6",
     "jsdom": "^31.0.0",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.7",
     "vitest": "^5.1.0"
