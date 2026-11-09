@@ -248,6 +248,7 @@ function runNow(): void {
         state.active = 0;
         editor.text = cur().code;
       }
+      renderBranchBar();
       const forkNote =
         reforked ? ` · reforked ${reforked}` : dropped.length ? ` · dropped ${dropped.join(", ")}` : "";
       status = `ok — ${history.length - 1} ticks · ${ms.toFixed(1)}ms${forkNote}`;
@@ -298,6 +299,7 @@ function forkHere(): void {
   nextBranchId++;
   state.branches.push(rec);
   state.active = state.branches.length - 1;
+  tabBody.innerHTML = "";
   renderBranchBar();
   setPlayhead(t);
   setStatus(`branch ${rec.label} forked at t=${t} — edit the model & Run to diverge`);
@@ -333,6 +335,7 @@ function activate(id: number): void {
   cur().code = editor.text;
   state.active = idx;
   editor.text = cur().code;
+  tabBody.innerHTML = "";
   renderBranchBar();
   setPlayhead(state.playhead);
 }
@@ -345,7 +348,11 @@ function discardBranch(id: number): void {
   if (wasActive) {
     state.active = Math.min(idx, state.branches.length - 1);
     editor.text = cur().code;
+  } else if (idx < state.active) {
+    // Removing an earlier chip shifts every later index down one.
+    state.active -= 1;
   }
+  tabBody.innerHTML = "";
   renderBranchBar();
   setPlayhead(state.playhead);
 }

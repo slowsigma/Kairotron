@@ -76,6 +76,12 @@ export function fork(
   }
   const horizon = spec.horizon ?? model.horizon;
   if (!horizon) throw new Error("forked model has no horizon and none was passed in the fork spec");
+  const trunkUnit = trunk[0]!.unit;
+  if (horizon.unit !== trunkUnit) {
+    throw new Error(
+      `can't change the tick unit across a fork yet (trunk is '${trunkUnit}', branch is '${horizon.unit}'; that's milestone 6)`,
+    );
+  }
   if (atT < horizon.start) {
     throw new Error(`fork point t=${atT} is before the branch horizon start (${horizon.start})`);
   }
@@ -114,7 +120,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
   let stocks: Record<string, number> = seed
     ? { ...model.stocks, ...seed.prefix[seed.prefix.length - 1]!.stocks }
     : { ...model.stocks };
-  const history: Snapshot[] = [];
+  const history: Snapshot[] = seed ? [...seed.prefix] : [];
 
   const perTickFn = (name: string): number => {
     const rate = rateConstants[name];
@@ -162,16 +168,36 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
     return out;
   };
 
-  const freeze = (t: number, values: StockMap, deltas: readonly Delta[]): Snapshot =>
-    Object.freeze({
+  const freeze = (
+    t: number,
+    values: StockMap,
+    deltas: readonly Delta[],
+    derivedFallback?: StockMap,
+  ): Snapshot => {
+    let derived: StockMap;
+    if (derivedFallback) {
+      // An override rewrites the shared fork snapshot. A variant derivation may
+      // read a stock that only enters on the next tick, so fall back to the
+      // prefix's projections rather than failing on a value that isn't visible
+      // at this tick yet.
+      try {
+        derived = evaluateDerived(t, values);
+      } catch {
+        derived = derivedFallback;
+      }
+    } else {
+      derived = evaluateDerived(t, values);
+    }
+    return Object.freeze({
       t,
+      unit: horizon.unit,
       stocks: Object.freeze({ ...values }),
-      derived: Object.freeze(evaluateDerived(t, values)),
+      derived: Object.freeze({ ...derived }),
       deltas: Object.freeze(deltas.map((d) => Object.freeze({ ...d }))),
     });
+  };
 
   if (seed) {
-    history.push(...seed.prefix);
     const head = history[history.length - 1]!;
     if (seed.stocks && Object.keys(seed.stocks).length > 0) {
       for (const [name, value] of Object.entries(seed.stocks)) {
@@ -179,13 +205,17 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
           throw new Error(`fork override '${name}' must be finite (got ${value})`);
         }
       }
+      // The fork snapshot carries the shared prefix state plus explicit
+      // overrides only; stocks the variant merely declares enter on the
+      // branch's first folded tick, not retroactively at the fork point.
+      const forkStocks = { ...head.stocks, ...seed.stocks };
       stocks = { ...stocks, ...seed.stocks };
       const deltas: Delta[] = Object.entries(seed.stocks).map(([stock, amount]) => ({
         stock,
         amount: amount - (head.stocks[stock] ?? 0),
         rule: `fork @t=${head.t}`,
       }));
-      history[history.length - 1] = freeze(head.t, stocks, deltas);
+      history[history.length - 1] = freeze(head.t, forkStocks, deltas, head.derived);
     }
   } else {
     history.push(freeze(start, stocks, []));

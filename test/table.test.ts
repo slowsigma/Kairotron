@@ -43,6 +43,21 @@ describe("formatCsv", () => {
     expect(lines[1]).toBe("0,100");
     expect(lines[4]).toBe("3,130");
   });
+
+  it("emits empty fields for stocks/derivations absent from a fork prefix", () => {
+    const trunk = simple();
+    const variant = model({
+      horizon: { start: 0, end: 5, unit: "month" },
+      stocks: { pot: 0, seed: 7 },
+      rules: [flow("pot", 10, "save")],
+      derived: [derived("big", (c) => c.stocks.pot + c.stocks.seed)],
+    });
+    const lines = formatCsv(fork(trunk, 3, variant).snapshots).split("\n");
+    expect(lines[0]).toBe("t,pot,seed,big");
+    expect(lines[1]).toBe("0,100,,"); // no seed / ~big yet, not fake zeros
+    expect(lines[4]).toBe("3,130,,"); // the fork tick is still the shared prefix
+    expect(lines[5]).toBe("4,140,7,147"); // the variant enters on its first tick
+  });
 });
 
 describe("table/flows renderers are unchanged for tame output", () => {

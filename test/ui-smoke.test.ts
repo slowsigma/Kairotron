@@ -155,6 +155,7 @@ describe("stocks chart stacking semantics", () => {
   const snapOf = (t: number, stocks: Record<string, number>): Snapshot =>
     Object.freeze({
       t,
+      unit: "month",
       stocks: Object.freeze({ ...stocks }),
       derived: Object.freeze({}),
       deltas: Object.freeze([]),

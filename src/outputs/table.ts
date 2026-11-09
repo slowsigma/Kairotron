@@ -24,9 +24,11 @@ function derivedNames(history: readonly Snapshot[]): string[] {
 }
 
 function aligned(header: readonly string[], rows: readonly (readonly string[])[]): string {
-  const widths = header.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => r[i]!.length)),
-  );
+  const widths = header.map((h, i) => {
+    let width = h.length;
+    for (const r of rows) if (r[i]!.length > width) width = r[i]!.length;
+    return width;
+  });
   const line = (cells: readonly string[]) =>
     cells.map((c, i) => c.padStart(widths[i]!)).join("  ");
   return [
@@ -86,13 +88,17 @@ export function formatCsv(history: readonly Snapshot[]): string {
   if (history.length === 0) return "";
   const names = stockNames(history);
   const derived = derivedNames(history);
+  // A fork variant can introduce stocks/derivations mid-run; the shared prefix
+  // genuinely has no value for them. Emit an empty field rather than a fake 0,
+  // matching formatTable's dash (and keeping real zeros distinguishable).
+  const cell = (v: number | undefined): string => (v === undefined ? "" : String(v));
   const rows = [
     ["t", ...names, ...derived].map(csvField).join(","),
     ...history.map((s) =>
       [
         String(s.t),
-        ...names.map((n) => String(s.stocks[n] ?? 0)),
-        ...derived.map((n) => String(s.derived[n] ?? 0)),
+        ...names.map((n) => cell(s.stocks[n])),
+        ...derived.map((n) => cell(s.derived[n])),
       ].join(","),
     ),
   ];

@@ -40,6 +40,7 @@ export interface Delta {
 
 export interface Snapshot {
   readonly t: number;
+  readonly unit: TickUnit;
   readonly stocks: StockMap;
   readonly derived: StockMap;
   readonly deltas: readonly Delta[];

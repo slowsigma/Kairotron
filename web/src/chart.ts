@@ -269,8 +269,12 @@ export function renderDerived(
     // legend shows the exact value at the playhead.
     visible.forEach((n) => {
       const vals = history.map((s) => s.derived[n] ?? 0);
-      let min = Math.min(...vals);
-      let max = Math.max(...vals);
+      let min = Infinity;
+      let max = -Infinity;
+      for (const v of vals) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
       const ghostAfter = ghost
         ? ghost.snapshots.filter((s) => s.t >= ghost.forkT && s.derived[n] !== undefined)
         : [];

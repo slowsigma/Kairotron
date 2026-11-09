@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fork, run } from "../src/core/fold.js";
-import { flow, lagged, model, once } from "../src/dsl/model.js";
+import { derived, flow, lagged, model, once } from "../src/dsl/model.js";
 
 const trunkModel = model({
   horizon: { start: 0, end: 10, unit: "month" },
@@ -65,6 +65,25 @@ describe("fork", () => {
     expect(b.snapshots[5]!.stocks.fund).toBe(1010); // override carries through the fold
   });
 
+  it("an override does not retroactively introduce variant-only stocks at the fork tick", () => {
+    const trunk = run(trunkModel);
+    const variant = model({
+      horizon: { start: 0, end: 10, unit: "month" },
+      stocks: { fund: 0, sink: 0, reserve: 500 },
+      rules: [flow("fund", 10, "deposit")],
+      derived: [derived("covered", (c) => c.stocks.fund + c.stocks.reserve)],
+    });
+    const b = fork(trunk, 6, variant, { stocks: { fund: 1000 } });
+    // only the explicit override lands on the shared fork snapshot
+    expect(b.snapshots[6]!.stocks).toEqual({ fund: 1000, sink: 0 });
+    expect(b.snapshots[6]!.deltas).toEqual([{ stock: "fund", amount: 840, rule: "fork @t=6" }]);
+    // a derivation needing the not-yet-visible reserve falls back to the prefix's
+    expect(b.snapshots[6]!.derived).toEqual({});
+    // the declared-but-not-overridden stock enters on the branch's first tick
+    expect(b.snapshots[7]!.stocks).toEqual({ fund: 1010, sink: 0, reserve: 500 });
+    expect(b.snapshots[7]!.derived).toEqual({ covered: 1510 });
+  });
+
   it("a variant can introduce new stocks at their declared initial and extend the horizon", () => {
     const trunk = run(trunkModel);
     const longer = model({
@@ -102,5 +121,13 @@ describe("fork", () => {
     expect(() => fork(trunk, 4, trunkModel, { stocks: { fund: Number.NaN } })).toThrow(
       /fork override 'fund' must be finite/,
     );
+  });
+
+  it("rejects a branch horizon whose tick unit differs from the trunk's", () => {
+    const trunk = run(trunkModel);
+    expect(trunk[0]!.unit).toBe("month");
+    expect(() =>
+      fork(trunk, 4, trunkModel, { horizon: { start: 0, end: 12, unit: "year" } }),
+    ).toThrow(/tick unit/);
   });
 });
