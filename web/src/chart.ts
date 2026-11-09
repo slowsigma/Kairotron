@@ -147,32 +147,69 @@ export function renderStocks(
   let min = 0;
   let max = 1;
   if (mode === "stacked") {
-    max = 1;
-    for (let i = 0; i < history.length; i++) {
-      let sum = 0;
-      for (let j = 0; j < names.length; j++) sum += Math.max(0, series[j][i]);
-      if (sum > max) max = sum;
+    // Diverging stack: positives build up from zero, negatives mirror down
+    // beneath the axis — clamping to 0 would silently drop real losses.
+    const posSum = history.map(() => 0);
+    const negSum = history.map(() => 0);
+    for (let i = 0; i < history.length; i++)
+      for (let j = 0; j < names.length; j++) {
+        const v = series[j][i];
+        if (v >= 0) posSum[i] += v;
+        else negSum[i] += v;
+      }
+    for (const p of posSum) if (p > max) max = p;
+    for (const nSum of negSum) if (nSum < min) min = nSum;
+    // Ghost runs stack in the same series order so their redraw sits on the
+    // same surface as the active areas; raw values would be off-surface and
+    // (in a mixed-sign run) outside the stacked scale entirely.
+    const ghostStack = new Map<string, Map<number, number>>();
+    if (ghost) {
+      for (const n of names) ghostStack.set(n, new Map());
+      for (const s of ghost.snapshots) {
+        let pos = 0;
+        let neg = 0;
+        for (const n of names) {
+          const v = s.stocks[n] ?? 0;
+          if (v >= 0) {
+            pos += v;
+            ghostStack.get(n)!.set(s.t, pos);
+          } else {
+            neg += v;
+            ghostStack.get(n)!.set(s.t, neg);
+          }
+        }
+        if (pos > max) max = pos;
+        if (neg < min) min = neg;
+      }
     }
-    if (ghost)
-      for (const s of ghost.snapshots)
-        for (const n of names) max = Math.max(max, s.stocks[n] ?? 0);
-    const yOf = (v: number) => PT + (1 - v / max) * (h - PT - PB);
-    const base = history.map(() => 0);
+    const yOf = (v: number) => PT + (1 - (v - min) / (max - min)) * (h - PT - PB);
+    const posBase = history.map(() => 0);
+    const negBase = history.map(() => 0);
     for (let j = 0; j < names.length; j++) {
       const color = colorOf(all.indexOf(names[j]!));
       const top: string[] = [];
       const bottom: string[] = [];
       history.forEach((s, i) => {
-        const v = Math.max(0, series[j][i]);
-        top.push(`${xFor(s.t, t0, tN)},${yOf(base[i] + v)}`);
-        bottom.unshift(`${xFor(s.t, t0, tN)},${yOf(base[i])}`);
-        base[i] += v;
+        const v = series[j][i];
+        const base = v >= 0 ? posBase[i] : negBase[i];
+        top.push(`${xFor(s.t, t0, tN)},${yOf(base + v)}`);
+        bottom.unshift(`${xFor(s.t, t0, tN)},${yOf(base)}`);
+        if (v >= 0) posBase[i] += v;
+        else negBase[i] += v;
       });
       areas.push(`<path fill="${color}" fill-opacity="0.55" stroke="${color}" stroke-width="1" d="M${top.join("L")}L${bottom.join("L")}Z"/>`);
     }
-    const ghostSvg = ghostLines(ghost, names, (n) => all.indexOf(n), yOf, t0, tN, ghostPick);
+    const ghostSvg = ghostLines(
+      ghost,
+      names,
+      (n) => all.indexOf(n),
+      yOf,
+      t0,
+      tN,
+      (s, n) => ghostStack.get(n)?.get(s.t),
+    );
     svg.innerHTML =
-      grid(h, yOf, 0, max, t0, tN) + ghostSvg + areas.join("") + playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
+      grid(h, yOf, min, max, t0, tN) + ghostSvg + areas.join("") + playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
   } else {
     min = Infinity;
     max = -Infinity;

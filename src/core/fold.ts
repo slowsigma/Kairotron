@@ -130,7 +130,10 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
     for (const def of model.derived) {
       const visible: StockMap = new Proxy(out, {
         get(target, key) {
-          if (typeof key === "string" && !(key in target)) {
+          // `key in target` walks Object.prototype, so reads like
+          // c.derived.toString / .hasOwnProperty would silently resolve to
+          // inherited junk instead of throwing as unknown.
+          if (typeof key === "string" && !Object.hasOwn(target, key)) {
             const seen = Object.keys(out);
             const prior = seen.length ? `already defined: ${seen.join(", ")}` : "none defined before it";
             throw new Error(

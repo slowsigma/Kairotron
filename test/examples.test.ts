@@ -66,9 +66,9 @@ describe("reservoir exemplar", () => {
   it("matches a hand-rolled daily loop with monthly rates normalized per day", () => {
     const history = run(reservoir);
     let storage = 4000;
-    const inflow = (180 * 12) / 365;
-    const release = (150 * 12) / 365;
-    const evap = (0.025 * 12) / 365;
+    const inflow = (180 * 12) / 364; // 52×7-day abstract year (units.ts)
+    const release = (150 * 12) / 364;
+    const evap = (0.025 * 12) / 364;
     for (let t = 1; t <= 60; t++) {
       storage += inflow - release;
       storage -= storage * evap;

@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
 import { beforeAll, describe, expect, it } from "vitest";
+import type { Snapshot } from "../src/core/types.js";
+import type { Ghost } from "../web/src/chart.js";
+import { renderStocks } from "../web/src/chart.js";
 
 let dom: JSDOM;
 
@@ -143,5 +146,59 @@ describe("browser REPL end to end (jsdom)", () => {
     expect(legend.querySelector("b")).toBeNull(); // no injected element
     expect(legend.innerHTML).toContain("&quot;");
     expect(legend.querySelector<HTMLElement>(".item")!.dataset.name).toBe('~x"on"><b>i</b>');
+  });
+});
+
+// Direct chart-level checks (renderStocks is DOM-free apart from needing an
+// SVG node, so jsdom alone suffices — no editor wiring involved).
+describe("stocks chart stacking semantics", () => {
+  const snapOf = (t: number, stocks: Record<string, number>): Snapshot =>
+    Object.freeze({
+      t,
+      stocks: Object.freeze({ ...stocks }),
+      derived: Object.freeze({}),
+      deltas: Object.freeze([]),
+    }) as Snapshot;
+  const svgOf = (): SVGSVGElement =>
+    (doc().createElementNS("http://www.w3.org/2000/svg", "svg") as unknown) as SVGSVGElement;
+
+  it("stacks negatives below the axis (diverging) instead of clipping them to 0", () => {
+    const svg = svgOf();
+    const history = [0, 1, 2, 3].map((t) => snapOf(t, { a: -1 }));
+    const legend = renderStocks(svg, history, 0, "stacked", new Set());
+    const stacked = new Set(legend.map((e) => e.name));
+    expect(stacked).toEqual(new Set(["a"]));
+    const inner = svg.innerHTML;
+    // the y-scale reaches the most extreme stacked sum, not just the positives
+    expect(inner).toContain(">-1</text>");
+    // plot y runs 10 (top) .. 260 (bottom); the zero line sits at 135, so the
+    // -1 band must live entirely at y >= 135 — clipping would pin it at y=10
+    const path = inner.match(/<path fill="[^"]+"[^>]*d="M([^"]+)"/)![1];
+    const ys = path.split("L").map((pt) => Number.parseFloat(pt.split(",")[1]!));
+    expect(ys.length).toBeGreaterThan(0);
+    expect(Math.min(...ys)).toBeGreaterThanOrEqual(135);
+    expect(Math.max(...ys)).toBeCloseTo(260, 6);
+  });
+
+  it("draws ghost continuation lines on the stacked surface, not at raw values", () => {
+    const svg = svgOf();
+    const history = [0, 1, 2, 3, 4].map((t) => snapOf(t, { a: 1, b: 2 }));
+    const ghost: Ghost = {
+      snapshots: [4, 5, 6].map((t) => snapOf(t, { a: 1, b: 2 })),
+      forkT: 4,
+    };
+    renderStocks(svg, history, 4, "stacked", new Set(), ghost);
+    const inner = svg.innerHTML;
+    // stack totals: a=1, b=1+2=3 → yOf(3)=10 (top), yOf(1)=10+250·⅔≈176.67;
+    // raw (unstacked) ghost b would sit at yOf(2)≈93.33 instead
+    const ysOf = (color: string): number[] =>
+      (inner.match(
+        new RegExp(`<polyline fill="none" stroke="${color}"[^>]*points="([^"]+)"`),
+      )?.[1] ?? "")
+        .split("L")
+        .map((pt) => Number.parseFloat(pt.split(",")[1]!));
+    for (const y of ysOf("#8ab4ff")) expect(y).toBeCloseTo(176.66666666666666, 6);
+    for (const y of ysOf("#ffab70")) expect(y).toBeCloseTo(10, 6);
+    expect(ysOf("#ffab70").length).toBe(3); // the ghost's three after-fork ticks
   });
 });

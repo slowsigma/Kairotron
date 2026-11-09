@@ -58,6 +58,17 @@ describe("derived quantities", () => {
     expect(() => run(bad)).toThrow(/unknown or forward-referenced derived 'nope'/);
   });
 
+  it("rejects prototype keys on the derived proxy (no silent Object.prototype reads)", () => {
+    const bad = model({
+      horizon: { start: 0, end: 2, unit: "month" },
+      stocks: { a: 1 },
+      rules: [],
+      derived: [derived("x", (c) => c.derived.toString as unknown as number)],
+    });
+    // `key in target` used to accept inherited keys like toString/valueOf
+    expect(() => run(bad)).toThrow(/unknown or forward-referenced derived 'toString'/);
+  });
+
   it("rejects non-finite derivations by name", () => {
     const bad = model({
       horizon: { start: 0, end: 2, unit: "month" },
