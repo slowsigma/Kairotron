@@ -1,5 +1,5 @@
 import type { DayCount, Horizon, Model, SourceLocation, TickUnit } from "../../src/core/types.js";
-import { DEFAULT_DAY_COUNT, retickHorizon } from "../../src/core/units.js";
+import { DEFAULT_DAY_COUNT, isDayCount, isTickUnit, retickHorizon } from "../../src/core/units.js";
 import {
   between,
   derived,
@@ -75,6 +75,10 @@ export function horizonOverride(
   const s = sAuto ? base.start : Number(start);
   const e = eAuto ? base.end : Number(end);
   if (!Number.isFinite(s) || !Number.isFinite(e)) throw new Error(`horizon start/end must be numbers`);
+  if (unit !== "" && !isTickUnit(unit)) throw new Error(`unknown tick unit '${unit}'`);
+  if (convention !== "" && !isDayCount(convention)) {
+    throw new Error(`unknown day-count convention '${convention}'`);
+  }
   const u = (unit === "" ? base.unit : unit) as TickUnit;
   const conv = convention === "" ? base.convention : (convention as DayCount);
   const horizon: Horizon =

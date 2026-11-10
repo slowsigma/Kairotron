@@ -56,6 +56,19 @@ describe("day-count conventions", () => {
     }
   });
 
+  it("sub-day rate schedules survive the day-ratio conversion's floating noise", () => {
+    const m = model({
+      horizon: { start: 0, end: 180, unit: "second" },
+      stocks: { a: 0 },
+      rules: [every(rate(1, "minute"), flow("a", 1, "each minute"))],
+    });
+    const fired = run(m)
+      .filter((s) => s.deltas.some((d) => d.rule === "each minute"))
+      .map((s) => s.t);
+    // 1/minute is 60 seconds, but the days-ratio conversion yields 60.000…1
+    expect(fired).toEqual([60, 120, 180]);
+  });
+
   it("the convention is declared on the model and reported by every snapshot", () => {
     const m = model({
       horizon: { start: 0, end: 1, unit: "day", convention: "30/360" },

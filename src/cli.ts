@@ -164,11 +164,17 @@ if (forkAt !== undefined) {
     process.exit(1);
   }
   console.log("");
-  console.log(`branch '${basename(variantFile!)}' — forked at t=${forkAt}`);
+  const forkNote =
+    branch.forkTBranch === forkAt
+      ? `forked at t=${forkAt}`
+      : `forked at t=${forkAt} (= t=${branch.forkTBranch} ${branch.horizon.unit})`;
+  console.log(`branch '${basename(variantFile!)}' — ${forkNote}`);
   console.log(formatTable(branch.snapshots));
   if (flows) {
     console.log("");
-    console.log(formatFlows(branch.snapshots.filter((s) => s.t >= forkAt)));
+    // The branch's own fork tick, not the trunk's, since a re-ticked branch
+    // shares a sparse prefix whose earlier moments are trunk history.
+    console.log(formatFlows(branch.snapshots.filter((s) => s.t >= branch.forkTBranch)));
   }
   if (diff) {
     console.log("");

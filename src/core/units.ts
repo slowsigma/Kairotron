@@ -107,14 +107,23 @@ export function convertTicks(
 // durations this close to a whole tick are rounding noise, not friction.
 const TICK_EPSILON = 1e-9;
 
+// Round a tick count to the nearest whole tick, or undefined when it genuinely
+// falls between ticks. Directions that convert through days (horizon re-ticks
+// and schedule intervals) share this so both accept the same rounding noise.
+export function nearestWholeTick(ticks: number): number | undefined {
+  const rounded = Math.round(ticks);
+  const tolerance = TICK_EPSILON * Math.max(1, Math.abs(ticks));
+  return Math.abs(ticks - rounded) <= tolerance ? rounded : undefined;
+}
+
 export function wholeTicks(
   ticks: number,
   what: string,
   toUnit: TickUnit,
   convention: DayCount,
 ): number {
-  const rounded = Math.round(ticks);
-  if (Math.abs(ticks - rounded) > TICK_EPSILON * Math.max(1, Math.abs(ticks))) {
+  const rounded = nearestWholeTick(ticks);
+  if (rounded === undefined) {
     throw new Error(
       `${what} = ${ticks} '${toUnit}' ticks — not a whole number under the '${convention}' day-count convention`,
     );

@@ -78,5 +78,9 @@ describe("browser REPL compilation", () => {
       expect(() => horizonOverride("", "soon", "", "", base)).toThrow(/must be numbers/);
       expect(() => horizonOverride("5", "5", "", "", base)).toThrow(/must exceed/);
     });
+    it("rejects unknown unit and convention labels", () => {
+      expect(() => horizonOverride("", "", "fortnight", "", base)).toThrow(/unknown tick unit 'fortnight'/);
+      expect(() => horizonOverride("", "", "", "act/360", base)).toThrow(/unknown day-count convention 'act\/360'/);
+    });
   });
 });

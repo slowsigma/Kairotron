@@ -1,5 +1,6 @@
 import { fork, run, snapAtOrBefore } from "../../src/core/fold.js";
 import type { Horizon, Model, Rule, Snapshot } from "../../src/core/types.js";
+import { DEFAULT_DAY_COUNT, daysPerTick } from "../../src/core/units.js";
 import { formatCsv, formatTable } from "../../src/outputs/table.js";
 import {
   colorOf,
@@ -293,7 +294,11 @@ function forkHere(): void {
   const c = cur();
   if (c.history.length === 0) return;
   const th = trunk().history;
-  const t = state.playhead;
+  const t = trunkTickAtPlayhead();
+  if (t === undefined) {
+    setStatus("cannot fork here: the playhead has no matching trunk moment", true);
+    return;
+  }
   const idx = th.findIndex((s) => s.t === t);
   if (idx === -1) {
     setStatus(`cannot fork at t=${t}: outside the trunk (${th[0].t}..${th[th.length - 1].t})`, true);
@@ -316,6 +321,25 @@ function forkHere(): void {
   renderBranchBar();
   setPlayhead(t);
   setStatus(`branch ${rec.label} forked at t=${t} — edit the model & Run to diverge`);
+}
+
+// "Fork here" always anchors to a trunk snapshot. On a re-ticked branch the
+// playhead is in branch ticks, so map it by duration and take the trunk moment
+// in force then (hold-last) rather than trusting the tick number.
+function trunkTickAtPlayhead(): number | undefined {
+  const c = cur();
+  const th = trunk().history;
+  if (th.length === 0) return undefined;
+  if (c === trunk() || c.history.length === 0 || c.history[0].unit === th[0].unit) return state.playhead;
+  const c0 = c.history[0]!;
+  const ratio =
+    daysPerTick(c0.unit, c0.convention ?? DEFAULT_DAY_COUNT) /
+    daysPerTick(th[0].unit, th[0].convention ?? DEFAULT_DAY_COUNT);
+  const eqTick = th[0].t + (state.playhead - c0.t) * ratio;
+  // Past the trunk's end there is no moment to fork from — don't clamp it onto
+  // the final snapshot, which would silently move the what-if earlier.
+  if (eqTick > th[th.length - 1]!.t + 1e-9) return undefined;
+  return snapAtOrBefore(th, eqTick)?.t;
 }
 
 function renderBranchBar(): void {
@@ -414,6 +438,10 @@ attachScrub(stocksSvg);
 attachScrub(derivedSvg);
 
 $("h-unit").addEventListener("change", () => {
+  if (cur().history.length) runNow();
+});
+
+$("h-convention").addEventListener("change", () => {
   if (cur().history.length) runNow();
 });
 

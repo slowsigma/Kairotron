@@ -55,6 +55,22 @@ describe("branch bookkeeping regressions", () => {
     expect(el("#branchbar").hidden).toBe(true);
   });
 
+  it("forks a re-ticked branch by duration, not by matching tick number", () => {
+    setPlayhead("5");
+    el("#fork").click(); // b1 forks the year-grid trunk at year 5
+
+    // Re-tick the branch to months (auto bounds), then park the playhead at
+    // month 240 — 20 years in, which is not a trunk tick value at all.
+    const unit = doc().querySelector("#h-unit") as HTMLSelectElement;
+    unit.value = "month";
+    unit.dispatchEvent(new dom.window.Event("change"));
+    setPlayhead("240");
+    el("#fork").click(); // b2 must anchor the trunk at year 20
+
+    expect(chipLabels()).toEqual(["main", "b1", "b2"]);
+    expect(all("#branchbar .chip")[2]!.textContent).toContain("b2@20");
+  });
+
   it("refreshes the table tab when switching branches", () => {
     el('#tabs button[data-tab="table"]').click();
     setPlayhead("3");

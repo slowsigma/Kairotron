@@ -15,7 +15,7 @@ import type {
   TickContext,
   TickUnit,
 } from "./types.js";
-import { DEFAULT_DAY_COUNT, daysPerTick, normalizeRate, ticksPerInterval, wholeTicks } from "./units.js";
+import { DEFAULT_DAY_COUNT, daysPerTick, nearestWholeTick, normalizeRate, ticksPerInterval, wholeTicks } from "./units.js";
 
 function isRate(v: ConstValue): v is Rate {
   return typeof v === "object" && v !== null && v.kind === "rate";
@@ -30,13 +30,17 @@ export function scheduleIntervalTicks(
     typeof interval === "number"
       ? interval
       : ticksPerInterval(interval.value, interval.perUnit, tickUnit, convention);
-  if (!Number.isInteger(ticks) || ticks <= 0) {
+  // Rate intervals convert through days, so a clean 1/minute on a second grid
+  // can arrive as 60.00000000000001. Round the noise away before demanding a
+  // whole positive count; a genuine fraction still fails.
+  const rounded = nearestWholeTick(ticks);
+  if (rounded === undefined || rounded <= 0) {
     const shown = typeof interval === "number" ? `${interval}` : `${interval.value}/${interval.perUnit}`;
     throw new Error(
       `schedule interval ${shown} does not land on a whole number of '${tickUnit}' ticks (${ticks}) under the '${convention}' day-count convention`,
     );
   }
-  return ticks;
+  return rounded;
 }
 
 export function scheduleFires(
