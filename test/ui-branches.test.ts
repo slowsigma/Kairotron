@@ -87,4 +87,27 @@ describe("branch bookkeeping regressions", () => {
     all("#branchbar .chip")[0].click(); // back to the trunk
     expect(el("#tab-body pre").textContent).not.toContain("novel");
   });
+
+  it("keeps a series hidden when it only appears after the fork", () => {
+    setPlayhead("3");
+    el("#fork").click(); // b1 active, forked at t=3
+
+    const ta = doc().querySelector("#editor textarea") as HTMLTextAreaElement;
+    ta.value = ta.value.replace(
+      "stocks: { preTax: 40000, cash: 8000 }",
+      "stocks: { preTax: 40000, cash: 8000, novel: 123 }",
+    );
+    el("#run").click();
+
+    const novel = (): HTMLElement =>
+      all("#stocks-legend .item").find((i) => i.dataset.name === "novel")!;
+    expect(novel()).toBeTruthy();
+    novel().click();
+    expect(novel().className).toContain("off");
+
+    // Re-running must not drop the toggle just because the earliest (prefix)
+    // snapshot predates the series.
+    el("#run").click();
+    expect(novel().className).toContain("off");
+  });
 });

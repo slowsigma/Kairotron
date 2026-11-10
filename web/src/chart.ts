@@ -240,7 +240,12 @@ export function renderStocks(
             if (v > max) max = v;
           }
         }
-    if (min === max) max = min + 1;
+    // Hiding every series leaves min/max at their Infinity sentinels; fall back
+    // to a unit scale so the grid doesn't render NaN labels.
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      min = 0;
+      max = 1;
+    } else if (min === max) max = min + 1;
     const yOf = (v: number) => PT + (1 - (v - min) / (max - min)) * (h - PT - PB);
     for (let j = 0; j < names.length; j++) {
       const color = colorOf(all.indexOf(names[j]!));

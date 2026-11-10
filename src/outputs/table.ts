@@ -1,5 +1,5 @@
 import { snapAtOrBefore } from "../core/fold.js";
-import { formatCalDate, tickToMs } from "../core/calendar.js";
+import { formatCalDate, tickAtOrBefore, tickToMs } from "../core/calendar.js";
 import { DEFAULT_DAY_COUNT, daysPerTick } from "../core/units.js";
 import type { Branch, Snapshot } from "../core/types.js";
 
@@ -80,14 +80,29 @@ export function formatDiff(base: readonly Snapshot[], branch: Branch): string {
   if (branch.snapshots.length === 0) return "";
   const names = stockNames(branch.snapshots);
   const baseAt = new Map(base.map((s) => [s.t, s]));
+  // Use the branch's horizon, not its first (possibly still trunk-shaped)
+  // prefix snapshot: a re-based variant's new ticks denote different moments.
+  const bh = branch.horizon;
   const crossUnit =
     base.length > 0 &&
-    (branch.snapshots[0]!.unit !== base[0]!.unit ||
-      (branch.snapshots[0]!.convention ?? DEFAULT_DAY_COUNT) !== (base[0]!.convention ?? DEFAULT_DAY_COUNT));
+    (bh.unit !== base[0]!.unit ||
+      (bh.convention ?? DEFAULT_DAY_COUNT) !== (base[0]!.convention ?? DEFAULT_DAY_COUNT) ||
+      bh.basis !== base[0]!.basis);
   const baseSnap = (s: Snapshot): Snapshot | undefined => {
     if (!crossUnit || base.length === 0) return baseAt.get(s.t);
     const b0 = base[0]!;
     const last = base[base.length - 1]!;
+    // Dated timelines align by civil moment: a month/year tick's length is
+    // leap-true, so the fixed day ratio would drift across February.
+    if (s.basis !== undefined && b0.basis !== undefined) {
+      const ms = tickToMs(s.t, s.unit, s.basis, s.convention ?? DEFAULT_DAY_COUNT);
+      const lastMs = tickToMs(last.t, last.unit, last.basis ?? b0.basis, last.convention ?? DEFAULT_DAY_COUNT);
+      if (ms > lastMs + 1e-6) return undefined;
+      const eqTick = tickAtOrBefore(ms, b0.unit, b0.basis, b0.convention ?? DEFAULT_DAY_COUNT);
+      // Don't clamp a moment before the trunk's first tick onto that snapshot.
+      if (eqTick < b0.t) return undefined;
+      return snapAtOrBefore(base, eqTick);
+    }
     const ratio =
       daysPerTick(s.unit, s.convention ?? DEFAULT_DAY_COUNT) /
       daysPerTick(b0.unit, b0.convention ?? DEFAULT_DAY_COUNT);

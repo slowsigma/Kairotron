@@ -9,7 +9,7 @@ import {
 import { fork, run } from "../src/core/fold.js";
 import { retickHorizon } from "../src/core/units.js";
 import { date, derived, flow, model, when } from "../src/dsl/model.js";
-import { formatCsv, formatTable } from "../src/outputs/table.js";
+import { formatCsv, formatDiff, formatTable } from "../src/outputs/table.js";
 import { horizonOverride } from "../web/src/repl.js";
 import type { Model, TickContext, TickUnit } from "../src/core/types.js";
 
@@ -231,6 +231,36 @@ describe("dated fold — snapshots carry the overlay", () => {
     });
   });
 
+  it("dated re-ticks follow civil month lengths (leap-true), not fixed day ratios", () => {
+    // 2000-01-31 + 12 civil months is 2001-01-31: 366 days, not 365.
+    const monthly = { start: 0, end: 12, unit: "month", convention: "actual/365", basis: jan31_2000 } as const;
+    expect(retickHorizon(monthly, "day")).toMatchObject({
+      start: 0,
+      end: 366,
+      unit: "day",
+      convention: "actual/365",
+      basis: jan31_2000,
+    });
+    // 2026-01-01 + 40 years includes ten leap days.
+    const yearly = {
+      start: 0,
+      end: 40,
+      unit: "year",
+      convention: "actual/365",
+      basis: parseDate("2026-01-01"),
+    } as const;
+    expect(retickHorizon(yearly, "day").end).toBe(14610);
+    // The civil conversion round-trips where the grid agrees.
+    expect(retickHorizon(retickHorizon(monthly, "day"), "month").end).toBe(12);
+    // A moment that falls between civil month ticks is refused, not fudged.
+    expect(() =>
+      retickHorizon(
+        { start: 0, end: 365, unit: "day", convention: "actual/365", basis: jan31_2000 },
+        "month",
+      ),
+    ).toThrow(/no whole 'month' tick/);
+  });
+
   it("a same-unit fork inherits the trunk's basis onto its new ticks", () => {
     const trunk = run(m);
     const variant = model({
@@ -263,6 +293,26 @@ describe("dated fold — snapshots carry the overlay", () => {
     expect(whenDate(last.t, "quarter", last.basis!, "actual/365").iso).toBe("2001-01-31");
   });
 
+  it("cross-unit forks align dated prefix moments by the civil calendar", () => {
+    const trunk = run(m); // monthly, actual/365, basis 2000-01-31
+    const daily = model({
+      horizon: { start: 0, end: 366, unit: "day", convention: "actual/365" },
+      stocks: { pot: 0 },
+      rules: [flow("pot", 10, "daily save")],
+    });
+    const b = fork(trunk, 3, daily); // month 3 = 2000-04-30 = day 90
+    expect(b.horizon.basis).toBe(jan31_2000);
+    expect(b.forkTBranch).toBe(90);
+    // Jan 31 → Feb 29 → Mar 31 → Apr 30 are exact daily moments.
+    expect(b.snapshots.map((s) => s.t).slice(0, 4)).toEqual([0, 29, 60, 90]);
+    expect(b.snapshots[1]!.stocks.pot).toBe(trunk[1]!.stocks.pot);
+    expect(b.snapshots[2]!.stocks.pot).toBe(trunk[2]!.stocks.pot);
+    expect(b.snapshots.find((s) => s.t === 91)!.stocks.pot).toBe(trunk[3]!.stocks.pot! + 10);
+    // Δ-vs-trunk aligns the daily branch to the trunk's civil months.
+    const diff = formatDiff(trunk, b);
+    expect(diff).toMatch(/\n\s*91\s+\+10\.00/);
+  });
+
   it("a fork whose variant declares its own basis keeps it", () => {
     const trunk = run(m);
     const own = model({
@@ -276,6 +326,18 @@ describe("dated fold — snapshots carry the overlay", () => {
     expect(b.snapshots[b.snapshots.length - 1]!.basis).toBe(parseDate("2030-01-01"));
     // …while the shared prefix keeps the trunk's (immutable snapshots)
     expect(b.snapshots[0]!.basis).toBe(jan31_2000);
+    // A re-based timeline has no common moments with the trunk after the
+    // fork, so Δ-vs-trunk must not pretend tick 3 is the same instant.
+    expect(formatDiff(trunk, b)).not.toMatch(/\+/);
+
+    // Nor may a basis before the trunk's first tick be clamped onto it.
+    const early = model({
+      horizon: { start: 0, end: 6, unit: "month", convention: "actual/365", basis: parseDate("1990-01-01") },
+      stocks: { pot: 0 },
+      rules: [flow("pot", 50, "save harder")],
+    });
+    const e = fork(trunk, 2, early);
+    expect(formatDiff(trunk, e)).not.toMatch(/\+/);
   });
 });
 

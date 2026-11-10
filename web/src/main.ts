@@ -1,5 +1,5 @@
 import { fork, run, snapAtOrBefore } from "../../src/core/fold.js";
-import { formatCalDate, tickToMs } from "../../src/core/calendar.js";
+import { formatCalDate, tickAtOrBefore, tickToMs } from "../../src/core/calendar.js";
 import type { Horizon, Model, Rule, Snapshot } from "../../src/core/types.js";
 import { DEFAULT_DAY_COUNT, daysPerTick } from "../../src/core/units.js";
 import { formatCsv, formatTable } from "../../src/outputs/table.js";
@@ -80,25 +80,31 @@ let nextBranchId = 1;
 const cur = (): BranchRec => state.branches[state.active]!;
 const trunk = (): BranchRec => state.branches[0]!;
 
+// The trunk ghost and the Δ pane overlay the branch on the trunk's tick scale,
+// so both require the same unit, day-count convention, and tick-0 basis. A
+// re-ticked or re-based branch is diffed in the CLI (formatDiff aligns by
+// moment), not overlaid here.
+function sameScale(): boolean {
+  const c = cur();
+  const th = trunk();
+  return (
+    th.history.length > 0 &&
+    c.history.length > 0 &&
+    th.horizon.unit === c.horizon.unit &&
+    (th.horizon.convention ?? DEFAULT_DAY_COUNT) === (c.horizon.convention ?? DEFAULT_DAY_COUNT) &&
+    th.horizon.basis === c.horizon.basis
+  );
+}
+
 function ghostOf(): Ghost | undefined {
   const c = cur();
-  if (c.forkT === undefined || trunk().history.length === 0) return undefined;
-  // Across a re-ticked fork the trunk lives on a different tick scale; a
-  // ghost drawn at trunk ticks would land at the wrong moments.
-  if (trunk().history[0].unit !== c.history[0]?.unit) return undefined;
+  if (c.forkT === undefined || !sameScale()) return undefined;
   return { snapshots: trunk().history, forkT: c.forkT };
 }
 
-// The diff pane compares on the trunk's tick scale; a re-ticked branch is
-// diffed in the CLI (formatDiff aligns by duration), not overlaid here.
 function diffable(): boolean {
   const c = cur();
-  return (
-    c.forkT !== undefined &&
-    trunk().history.length > 0 &&
-    c.history.length > 0 &&
-    trunk().history[0].unit === c.history[0]!.unit
-  );
+  return c.forkT !== undefined && sameScale();
 }
 
 function collectRuleLines(model: Model, compiled: Compiled): Map<string, number[]> {
@@ -122,12 +128,17 @@ function stockColors(): Map<string, string> {
 
 // Calendar axis: the timeline's snapshots carry the basis; ticks render as
 // civil dates instead of bare numbers (plan.md's when(t, tickUnit, basis)).
+// Use the snapshot in force at each tick — a branch may carry the trunk's
+// basis through its shared prefix and its variant's own basis on new ticks.
 function xLabelFor(c: BranchRec): XLabel | undefined {
-  const s0 = c.history.find((s) => s.basis !== undefined);
-  if (!s0 || s0.basis === undefined) return undefined;
-  const basis = s0.basis;
-  const conv = s0.convention ?? DEFAULT_DAY_COUNT;
-  return (t) => formatCalDate(tickToMs(t, s0.unit, basis, conv));
+  if (!c.history.some((s) => s.basis !== undefined)) return undefined;
+  return (t) => {
+    const snap = snapAtOrBefore(c.history, t) ?? c.history[0]!;
+    const anchor = snap.basis !== undefined ? snap : c.history.find((s) => s.basis !== undefined)!;
+    return formatCalDate(
+      tickToMs(t, anchor.unit, anchor.basis!, anchor.convention ?? DEFAULT_DAY_COUNT),
+    );
+  };
 }
 
 function snapDate(snap: Snapshot): string {
@@ -300,7 +311,14 @@ function runNow(): void {
       status = `${c.label} · ok — ${b.snapshots.length - 1} ticks · ${ms.toFixed(1)}ms · forked @t=${c.forkT}`;
     }
     const c2 = cur();
-    state.hidden = new Set([...state.hidden].filter((n) => n in c2.history[0].stocks || n in c2.history[0].derived));
+    // A fork variant can introduce stocks/derivations after the shared prefix,
+    // so keep hidden toggles for anything present anywhere in the timeline.
+    const present = new Set<string>();
+    for (const s of c2.history) {
+      for (const k of Object.keys(s.stocks)) present.add(k);
+      for (const k of Object.keys(s.derived)) present.add(k);
+    }
+    state.hidden = new Set([...state.hidden].filter((n) => present.has(n)));
     tabBody.innerHTML = "";
     setStatus(status);
     setPlayhead(state.playhead);
@@ -349,15 +367,29 @@ function trunkTickAtPlayhead(): number | undefined {
   const c = cur();
   const th = trunk().history;
   if (th.length === 0) return undefined;
-  if (c === trunk() || c.history.length === 0 || c.history[0].unit === th[0].unit) return state.playhead;
+  if (c === trunk() || c.history.length === 0 || sameScale()) return state.playhead;
+  const snap = snapAtOrBefore(c.history, state.playhead) ?? c.history[0]!;
+  const b0 = th[0]!;
+  const last = th[th.length - 1]!;
+  // Dated timelines align by civil moment (leap-true month/year ticks); the
+  // fixed day ratio is only the fallback for undated timelines.
+  if (snap.basis !== undefined && b0.basis !== undefined) {
+    const ms = tickToMs(snap.t, snap.unit, snap.basis, snap.convention ?? DEFAULT_DAY_COUNT);
+    const lastMs = tickToMs(last.t, last.unit, last.basis ?? b0.basis, last.convention ?? DEFAULT_DAY_COUNT);
+    // Past the trunk's end there is no moment to fork from — don't clamp it
+    // onto the final snapshot, which would silently move the what-if earlier.
+    if (ms > lastMs + 1e-6) return undefined;
+    const eqTick = tickAtOrBefore(ms, b0.unit, b0.basis, b0.convention ?? DEFAULT_DAY_COUNT);
+    // Likewise, a moment before the trunk's first tick has nothing to fork.
+    if (eqTick < b0.t) return undefined;
+    return snapAtOrBefore(th, eqTick)?.t;
+  }
   const c0 = c.history[0]!;
   const ratio =
     daysPerTick(c0.unit, c0.convention ?? DEFAULT_DAY_COUNT) /
-    daysPerTick(th[0].unit, th[0].convention ?? DEFAULT_DAY_COUNT);
-  const eqTick = th[0].t + (state.playhead - c0.t) * ratio;
-  // Past the trunk's end there is no moment to fork from — don't clamp it onto
-  // the final snapshot, which would silently move the what-if earlier.
-  if (eqTick > th[th.length - 1]!.t + 1e-9) return undefined;
+    daysPerTick(b0.unit, b0.convention ?? DEFAULT_DAY_COUNT);
+  const eqTick = b0.t + (state.playhead - c0.t) * ratio;
+  if (eqTick > last.t + 1e-9) return undefined;
   return snapAtOrBefore(th, eqTick)?.t;
 }
 
@@ -494,7 +526,8 @@ $("exp-json").addEventListener("click", () => {
 });
 
 window.addEventListener("keydown", (e) => {
-  if ((e.target as HTMLElement).tagName === "TEXTAREA") return;
+  // Don't hijack arrows while typing or while a form control owns them.
+  if (["TEXTAREA", "INPUT", "SELECT"].includes((e.target as HTMLElement).tagName)) return;
   if (e.key === "ArrowLeft") setPlayhead(state.playhead - 1);
   if (e.key === "ArrowRight") setPlayhead(state.playhead + 1);
 });

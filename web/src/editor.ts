@@ -4,6 +4,7 @@ const escapeHtml = (s: string): string =>
 export class Editor {
   private mirror: HTMLElement;
   private area: HTMLTextAreaElement;
+  private highlights: ReadonlySet<number> = new Set();
 
   constructor(container: HTMLElement, initial: string) {
     container.innerHTML = `<pre class="mirror" aria-hidden="true"></pre><textarea spellcheck="false"></textarea>`;
@@ -14,11 +15,16 @@ export class Editor {
       this.mirror.scrollTop = this.area.scrollTop;
       this.mirror.scrollLeft = this.area.scrollLeft;
     });
+    // The mirror carries the highlight backgrounds behind a transparent
+    // textarea, so it must re-render as the user types — otherwise highlights
+    // stay pinned to stale line numbers until the next Run or playhead move.
+    this.area.addEventListener("input", () => this.render());
     this.area.addEventListener("keydown", (e) => {
       if (e.key === "Tab") {
         e.preventDefault();
         const { selectionStart: s, selectionEnd: eEnd } = this.area;
         this.area.setRangeText("  ", s, eEnd, "end");
+        this.render();
       }
     });
     this.render();
@@ -42,7 +48,7 @@ export class Editor {
     });
   }
 
-  private render(highlights: ReadonlySet<number> = new Set()): void {
+  private render(highlights: ReadonlySet<number> = this.highlights): void {
     const lines = this.area.value.split("\n");
     this.mirror.innerHTML = lines
       .map(
@@ -53,6 +59,7 @@ export class Editor {
   }
 
   setHighlights(lines: Iterable<number>): void {
-    this.render(new Set(lines));
+    this.highlights = new Set(lines);
+    this.render();
   }
 }

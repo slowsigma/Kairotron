@@ -69,6 +69,21 @@ describe("derived quantities", () => {
     expect(() => run(bad)).toThrow(/unknown or forward-referenced derived 'toString'/);
   });
 
+  it("rejects writes through c.derived (read-only projections)", () => {
+    const bad = model({
+      horizon: { start: 0, end: 2, unit: "month" },
+      stocks: { a: 1 },
+      rules: [],
+      derived: [
+        derived("bad", (c) => {
+          (c.derived as Record<string, number>).injected = 1;
+          return 1;
+        }),
+      ],
+    });
+    expect(() => run(bad)).toThrow(/read-only/);
+  });
+
   it("rejects non-finite derivations by name", () => {
     const bad = model({
       horizon: { start: 0, end: 2, unit: "month" },

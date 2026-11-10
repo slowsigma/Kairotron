@@ -16,7 +16,7 @@ import type {
   TickContext,
   TickUnit,
 } from "./types.js";
-import { MS_PER_DAY, whenDate } from "./calendar.js";
+import { msToTick, tickToMs, whenDate } from "./calendar.js";
 import { DEFAULT_DAY_COUNT, daysPerTick, nearestWholeTick, normalizeRate, ticksPerInterval, wholeTicks } from "./units.js";
 
 function isRate(v: ConstValue): v is Rate {
@@ -109,25 +109,18 @@ export function fork(
   const trunkUnit = trunk[0]!.unit;
   const branchUnit = horizon.unit;
   const crossUnit = branchUnit !== trunkUnit;
-  // A branch that omits a basis inherits the trunk's so the shared prefix and
-  // the new ticks display the same calendar. The basis anchors tick 0, and the
-  // branch's tick 0 is not necessarily the trunk's tick 0 (different unit
-  // and/or start), so the anchor shifts by the duration between those two
-  // tick-zero moments.
   const trunkBasis = trunk[0]!.basis;
   const trunkConv = trunk[0]!.convention ?? DEFAULT_DAY_COUNT;
+  // The basis anchors tick 0, so a branch inherits the trunk's unchanged:
+  // both timelines measure from the same civil moment regardless of unit or
+  // horizon start.
   const effHorizon: Horizon =
     horizon.basis !== undefined || trunkBasis === undefined
       ? horizon
       : {
           ...horizon,
           ...(horizon.convention === undefined ? { convention: trunkConv } : {}),
-          basis:
-            trunkBasis +
-            (trunk[0]!.t * daysPerTick(trunkUnit, trunkConv) -
-              horizon.start *
-                daysPerTick(branchUnit, horizon.convention ?? trunkConv)) *
-              MS_PER_DAY,
+          basis: trunkBasis,
         };
   if (!crossUnit) {
     if (atT < effHorizon.start) {
@@ -174,12 +167,29 @@ function remapPrefix(prefix: readonly Snapshot[], horizon: Horizon): readonly Sn
   const trunkConv = prefix[0]!.convention ?? DEFAULT_DAY_COUNT;
   const conv = horizon.convention ?? DEFAULT_DAY_COUNT;
   const branchUnit = horizon.unit;
+  const basis = horizon.basis;
   const ratio = daysPerTick(trunkUnit, trunkConv) / daysPerTick(branchUnit, conv);
   const out: Snapshot[] = [];
   for (let i = 0; i < prefix.length; i++) {
     const s = prefix[i]!;
-    const mapped = horizon.start + (s.t - t0) * ratio;
     const isFork = i === prefix.length - 1;
+    // With a basis on both sides, align by civil moment: month/year ticks are
+    // leap-true lengths, so a fixed day ratio would drift across February.
+    let mapped: number | undefined;
+    if (basis !== undefined && s.basis !== undefined) {
+      const ms = tickToMs(s.t, s.unit, s.basis, s.convention ?? DEFAULT_DAY_COUNT);
+      mapped = msToTick(ms, branchUnit, basis, conv);
+      if (mapped === undefined) {
+        if (isFork) {
+          throw new Error(
+            `trunk snapshot t=${s.t} does not land on a whole '${branchUnit}' tick under the '${conv}' day-count convention`,
+          );
+        }
+        continue;
+      }
+    } else {
+      mapped = horizon.start + (s.t - t0) * ratio;
+    }
     let tick: number;
     try {
       tick = wholeTicks(mapped, `trunk snapshot t=${s.t}`, branchUnit, conv);
@@ -276,6 +286,17 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
             );
           }
           return target[key as string];
+        },
+        // Derivations are read-only projections; a write through c.derived
+        // must not leak a value into later derivations.
+        set() {
+          throw new TypeError(`derived '${def.name}' cannot write to c.derived (read-only)`);
+        },
+        deleteProperty() {
+          throw new TypeError(`derived '${def.name}' cannot delete from c.derived (read-only)`);
+        },
+        defineProperty() {
+          throw new TypeError(`derived '${def.name}' cannot define a property on c.derived (read-only)`);
         },
       });
       const ctx: DerivedContext = Object.freeze({

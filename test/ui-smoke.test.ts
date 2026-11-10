@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/core/types.js";
 import type { Ghost } from "../web/src/chart.js";
 import { renderStocks } from "../web/src/chart.js";
+import { Editor } from "../web/src/editor.js";
 
 let dom: JSDOM;
 
@@ -162,6 +163,23 @@ describe("browser REPL end to end (jsdom)", () => {
   });
 });
 
+describe("editor mirror", () => {
+  it("re-renders line highlights as the buffer changes", () => {
+    const container = doc().createElement("div");
+    const editor = new Editor(container, "one\ntwo");
+    editor.setHighlights([2]);
+    expect(container.querySelectorAll(".mirror .ln")).toHaveLength(2);
+    expect(container.querySelectorAll(".mirror .ln.hl")).toHaveLength(1);
+
+    const area = container.querySelector("textarea") as HTMLTextAreaElement;
+    area.value = "one\ntwo\nthree";
+    area.dispatchEvent(new dom.window.Event("input"));
+    // The mirror must follow the textarea, or highlights stay on stale lines.
+    expect(container.querySelectorAll(".mirror .ln")).toHaveLength(3);
+    expect(container.querySelectorAll(".mirror .ln.hl")).toHaveLength(1);
+  });
+});
+
 // Direct chart-level checks (renderStocks is DOM-free apart from needing an
 // SVG node, so jsdom alone suffices — no editor wiring involved).
 describe("stocks chart stacking semantics", () => {
@@ -214,5 +232,13 @@ describe("stocks chart stacking semantics", () => {
     for (const y of ysOf("#8ab4ff")) expect(y).toBeCloseTo(176.66666666666666, 6);
     for (const y of ysOf("#ffab70")) expect(y).toBeCloseTo(10, 6);
     expect(ysOf("#ffab70").length).toBe(3); // the ghost's three after-fork ticks
+  });
+
+  it("falls back to a finite scale when every series is hidden", () => {
+    const svg = svgOf();
+    const history = [0, 1, 2].map((t) => snapOf(t, { a: t + 1 }));
+    renderStocks(svg, history, 0, "lines", new Set(["a"]));
+    expect(svg.innerHTML).not.toContain("NaN");
+    expect(svg.innerHTML).not.toContain("Infinity");
   });
 });

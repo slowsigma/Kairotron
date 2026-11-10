@@ -1,4 +1,5 @@
 import type { DayCount, TickUnit } from "./types.js";
+import { convertTicksAt } from "./calendar.js";
 
 export const TICK_UNITS: readonly TickUnit[] = [
   "second",
@@ -142,9 +143,25 @@ export function retickHorizon(
 ): { start: number; end: number; unit: TickUnit; convention: DayCount; basis?: number | undefined } {
   const conv = convention ?? horizon.convention ?? DEFAULT_DAY_COUNT;
   if (toUnit === horizon.unit && convention === undefined) return { ...horizon, convention: conv };
+  const basis = horizon.basis;
+  const convertBound = (ticks: number, what: string): number => {
+    // With a calendar basis, month/quarter/year ticks are civil lengths
+    // (leap-true), so a fixed day-ratio conversion would shorten a year that
+    // contains a leap day. Anchor the tick to its civil moment instead.
+    const converted =
+      basis === undefined
+        ? convertTicks(ticks, horizon.unit, toUnit, conv)
+        : convertTicksAt(ticks, horizon.unit, toUnit, basis, conv);
+    if (converted === undefined) {
+      throw new Error(
+        `${what} = ${ticks} '${horizon.unit}' ticks — no whole '${toUnit}' tick at the same civil moment under the '${conv}' day-count convention`,
+      );
+    }
+    return wholeTicks(converted, what, toUnit, conv);
+  };
   return {
-    start: wholeTicks(convertTicks(horizon.start, horizon.unit, toUnit, conv), "horizon start", toUnit, conv),
-    end: wholeTicks(convertTicks(horizon.end, horizon.unit, toUnit, conv), "horizon end", toUnit, conv),
+    start: convertBound(horizon.start, "horizon start"),
+    end: convertBound(horizon.end, "horizon end"),
     unit: toUnit,
     convention: conv,
     ...(horizon.basis === undefined ? {} : { basis: horizon.basis }),

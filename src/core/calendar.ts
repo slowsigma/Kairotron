@@ -1,5 +1,5 @@
 import type { CalendarDate, DayCount, TickUnit } from "./types.js";
-import { DEFAULT_DAY_COUNT, daysPerTick } from "./units.js";
+import { DEFAULT_DAY_COUNT, daysPerTick, nearestWholeTick } from "./units.js";
 
 // The milestone-7 overlay: a calendar basis is a display/gating anchor — the
 // civil moment of tick 0 — that never changes engine semantics. Ticks stay
@@ -83,6 +83,10 @@ function civilStep(basis: number, nMonths: number, clampTo30: boolean): number {
   );
 }
 
+// How many civil months one tick of `unit` spans (0 for fixed-length units).
+const monthsPerTick = (unit: TickUnit): number =>
+  unit === "month" ? 1 : unit === "quarter" ? 3 : unit === "year" ? 12 : 0;
+
 // Tick → civil timestamp under a declared convention:
 // - month/quarter/year with a calendar convention step the civil calendar
 //   directly (a monthly tick is a civil month, not 30.42 days);
@@ -103,11 +107,89 @@ export function tickToMs(
   if (!Number.isInteger(t)) {
     throw new Error(`calendar conversion needs a whole tick (got t=${t})`);
   }
-  const months = unit === "month" ? 1 : unit === "quarter" ? 3 : unit === "year" ? 12 : 0;
+  const months = monthsPerTick(unit);
   if (months > 0 && convention !== DEFAULT_DAY_COUNT) {
     return civilStep(basis, t * months, convention === "30/360");
   }
   return Math.round(basis + t * daysPerTick(unit, convention) * MS_PER_DAY);
+}
+
+// Inverse of tickToMs for a known civil moment. Fixed-length units (second …
+// week) return a possibly-fractional tick count — callers round it through
+// nearestWholeTick, matching the ratio-table conversion. Civil month/quarter/
+// year units return the exact whole tick when the moment lands on the grid, and
+// undefined otherwise (there is no fractional civil month tick).
+export function msToTick(
+  ms: number,
+  unit: TickUnit,
+  basis: number,
+  convention: DayCount = "actual/365",
+): number | undefined {
+  if (!Number.isFinite(basis)) {
+    throw new Error(
+      `calendar basis must be a finite timestamp — build it with date("YYYY-MM-DD") (got ${basis})`,
+    );
+  }
+  if (!Number.isFinite(ms)) return undefined;
+  const months = monthsPerTick(unit);
+  if (months > 0 && convention !== DEFAULT_DAY_COUNT) {
+    const base = new Date(basis);
+    const d = new Date(ms);
+    const diff =
+      (d.getUTCFullYear() - base.getUTCFullYear()) * 12 + (d.getUTCMonth() - base.getUTCMonth());
+    if (diff % months !== 0) return undefined;
+    const n = diff / months;
+    return tickToMs(n, unit, basis, convention) === ms ? n : undefined;
+  }
+  return (ms - basis) / (daysPerTick(unit, convention) * MS_PER_DAY);
+}
+
+// Duration-preserving tick conversion that respects the civil calendar when a
+// basis exists: the source tick is first anchored to its civil moment, then
+// mapped back onto the target grid. This is the basis-aware counterpart of
+// units.convertTicks (which uses fixed day ratios).
+export function convertTicksAt(
+  ticks: number,
+  fromUnit: TickUnit,
+  toUnit: TickUnit,
+  basis: number,
+  convention: DayCount = "actual/365",
+): number | undefined {
+  return msToTick(tickToMs(ticks, fromUnit, basis, convention), toUnit, basis, convention);
+}
+
+// Largest whole target tick at or before `ms` — the civil-calendar analog of
+// floor((ms - basis) / tickLength), used for hold-last alignment of a
+// re-ticked branch against its trunk. Fixed units keep the fractional tick
+// semantics via floor; civil units walk the (monotonic) month grid.
+export function tickAtOrBefore(
+  ms: number,
+  unit: TickUnit,
+  basis: number,
+  convention: DayCount = "actual/365",
+): number {
+  if (!Number.isFinite(basis)) {
+    throw new Error(
+      `calendar basis must be a finite timestamp — build it with date("YYYY-MM-DD") (got ${basis})`,
+    );
+  }
+  if (!Number.isFinite(ms)) throw new Error(`calendar conversion needs a finite timestamp (got ${ms})`);
+  const months = monthsPerTick(unit);
+  if (months > 0 && convention !== DEFAULT_DAY_COUNT) {
+    const base = new Date(basis);
+    const d = new Date(ms);
+    const diff =
+      (d.getUTCFullYear() - base.getUTCFullYear()) * 12 + (d.getUTCMonth() - base.getUTCMonth());
+    let n = Math.floor(diff / months);
+    // Clamping and time-of-day can put the estimate one tick off; walk to the
+    // true floor. The grid is monotonic, so this settles immediately.
+    while (tickToMs(n + 1, unit, basis, convention) <= ms) n++;
+    while (tickToMs(n, unit, basis, convention) > ms) n--;
+    return n;
+  }
+  const raw = (ms - basis) / (daysPerTick(unit, convention) * MS_PER_DAY);
+  const rounded = nearestWholeTick(raw);
+  return rounded !== undefined ? rounded : Math.floor(raw);
 }
 
 export function formatCalDate(ms: number): string {
