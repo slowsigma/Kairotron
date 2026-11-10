@@ -87,14 +87,33 @@ t=1
 ```
 
 Because the tick unit is **semantics**, not just tempo, re-ticking changes the model
-rather than re-scoring it — `--unit year` re-normalizes the 7%/year rate and the
-contribution means something different per tick. The engine makes that explicit:
+rather than re-scoring it — `--unit year` re-expresses the same *duration* on a
+yearly grid (0..12 monthly ticks become 0..1 yearly tick), re-normalizing the
+7%/year rate so the contribution means something different per tick:
 
 | | monthly tick | yearly tick |
 |---|---|---|
 | growth per tick | 7%/12 | 7% |
 | contribution per tick | 2750 | 2750 (applied once) |
-| result after tick 1 | `162,953` after 12 ticks | `131,202` after 1 tick |
+| result after tick 1 | `162,953` after 12 ticks | `131,342` after 1 tick |
+
+Conversions that assume a calendar need a declared **day-count convention**
+(`--convention abstract | actual/365 | 30/360`): the abstract year is exactly
+52 weeks (364 days), so quarterly schedules land on whole daily ticks there and
+on 30/360 (90 days) but not under actual/365 (91.25) — where the engine refuses
+rather than fudging. A duration that doesn't divide into whole ticks is rejected
+the same way; `--end` always takes raw ticks in the target unit if you want it.
+
+Forks re-tick too: `--fork-at 6` onto a daily variant re-expresses the trunk's
+first six monthly ticks at their exact daily moments (months 1, 2, 4, 5 land
+between days and drop out of the shared prefix; months 0, 3, 6 land on days 0,
+91, 182), `lagged` reads that sparse prefix hold-last, and `--diff` aligns the
+trunk by duration:
+
+```
+npx tsx src/cli.ts examples/retirement.ts --fork-at 6 \
+  --variant examples/retirement-daily.ts --diff
+```
 
 ## How it works
 
@@ -112,14 +131,20 @@ The whole engine is `reduce` over ticks: `s_t = step(s_{t-1}, t, params)`.
   display overlay you add later (`date(1971-03-15)` basis renders ticks as
   dates), never engine semantics — exactly Tidal's `Time = Rational` position.
 - **Rates carry units.** `pct(7, "year")` becomes 7/12 per monthly tick,
-  7/52 per weekly tick. Change the tick unit, change the meaning.
+  7/52 per weekly tick. Change the tick unit, change the meaning. Cross-unit
+  conversion is duration-preserving and governed by a declared **day-count
+  convention** (`abstract`, `actual/365`, `30/360`) — everything must land on
+  whole ticks or the engine says so.
 - **Gating, schedules, delays.** Rules compose: `when(guard, rule)`,
   `unless(...)`, `every(7, ...)`, `once(t, ...)`, `between(a, b, ...)`, and
   `lagged(stock, n)` for dependencies on earlier snapshots.
 - **Branches are free.** `fork(history, t, variantModel)` continues the fold from
   any snapshot with a different rule set — the shared prefix is the *same* frozen
   snapshots, `lagged` reads across the fork point into the trunk, and a variant
-  can even run past the trunk's horizon. Retire at 60 vs 65 costs no copies.
+  can even run past the trunk's horizon. Retire at 60 vs 65 costs no copies. A
+  branch may even continue on a **different tick unit**: the trunk prefix is
+  re-expressed at the moments where both grids agree, and `lagged` reads it
+  hold-last.
 - **Deterministic by default.** Monte Carlo is an opt-in mode on the roadmap,
   not the default execution model.
 
@@ -132,6 +157,7 @@ Realistic exemplars, each verified tick-by-tick against a hand-rolled loop in
 |---|---|---|
 | [`retirement.ts`](examples/retirement.ts) | personal finance | rates with per-units, derived projections |
 | [`retirement-boost.ts`](examples/retirement-boost.ts) | personal finance | what-if fork of the model above (raise at tick 6) |
+| [`retirement-daily.ts`](examples/retirement-daily.ts) | personal finance | re-ticked fork: the same year on a daily grid |
 | [`reservoir.ts`](examples/reservoir.ts) | hydrology | monthly rates on daily ticks, proportional evaporation |
 | [`epidemic-sir.ts`](examples/epidemic-sir.ts) | epidemiology | stock↔stock transfers, guarded recurring schedules |
 | [`supply-chain.ts`](examples/supply-chain.ts) | operations | delays, conservation of units, bullwhip oscillation |
@@ -143,7 +169,9 @@ stocks. Scrub the playhead (or use the arrow keys) and the editor highlights
 *the rule that moved each stock at that tick* — Strudel's
 [`withLoc` trick](https://strudel.cc/learn/visual-feedback/), aimed at data.
 Tab through the inspector for the full state vector at any tick, and export
-the history as CSV or JSON.
+the history as CSV or JSON. The toolbar re-ticks without touching the model:
+changing **unit** with start/end on auto re-expresses the horizon at the same
+duration (rates re-normalize), and **convention** switches the day-count basis.
 
 **⑂ Fork** branches the timeline at the playhead: the branch gets its own editor
 buffer, the trunk's continuation ghosts behind it as dashed lines, and a Δ-pane
@@ -175,7 +203,7 @@ Milestones from [`docs/plan.md`](docs/plan.md):
 - [x] Derived quantities — read-only projections on every snapshot
 - [x] Browser REPL — editor, stacked timeline, scrubber, code highlighting
 - [x] Branches & what-if — fork from any snapshot (free, because states never mutate)
-- [ ] Tick re-normalization — same model, new tick unit; day-count conventions
+- [x] Tick re-normalization — same model, new tick unit; day-count conventions
 - [ ] Calendar overlay — basis constant + calendar display and gating
 - [ ] Monte Carlo mode — random rate sequences, worker pool, percentile bands
 

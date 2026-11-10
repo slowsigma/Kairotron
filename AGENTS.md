@@ -51,8 +51,10 @@ Companion research: `docs/Concept-Search.md` (domain math),
 4. **Browser REPL + visualization** — editor + run + stacked timeline chart +
    scrubber + playhead-linked code highlighting ✓ done
 5. Branches & what-if — fork from snapshot, Δ-vs-trunk overlay ✓ done
-6. Tick re-normalization + day-count conventions ← current
-7. Calendar overlay (basis + `when(...)`)
+6. Tick re-normalization + day-count conventions (`DayCount` on the horizon,
+   duration-preserving `retickHorizon`, cross-unit forks with a duration-mapped
+   sparse prefix and hold-last lag) ✓ done
+7. Calendar overlay (basis + `when(...)`) ← current
 8. Monte Carlo mode
 
 ## Conventions

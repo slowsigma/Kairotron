@@ -8,10 +8,18 @@ export type TickUnit =
   | "quarter"
   | "year";
 
+// Day-count convention: how month/quarter/year map onto days when rates,
+// schedules, and horizons are re-normalized across tick units. "abstract" is
+// the calendar-free default (a 364-day year = exactly 52 weeks); the others
+// are the declared finance conventions. Leap-year-true actual/actual needs a
+// calendar basis and arrives with the milestone-7 overlay.
+export type DayCount = "abstract" | "actual/365" | "30/360";
+
 export interface Horizon {
   readonly start: number;
   readonly end: number;
   readonly unit: TickUnit;
+  readonly convention?: DayCount | undefined;
 }
 
 export interface Rate {
@@ -41,6 +49,7 @@ export interface Delta {
 export interface Snapshot {
   readonly t: number;
   readonly unit: TickUnit;
+  readonly convention?: DayCount | undefined;
   readonly stocks: StockMap;
   readonly derived: StockMap;
   readonly deltas: readonly Delta[];
@@ -135,6 +144,9 @@ export interface ForkSpec {
 export interface Branch {
   readonly label: string;
   readonly forkT: number;
+  // The fork point expressed in the branch's own ticks — equal to forkT
+  // unless the branch re-ticked the trunk (milestone 6).
+  readonly forkTBranch: number;
   readonly horizon: Horizon;
   readonly snapshots: readonly Snapshot[];
 }

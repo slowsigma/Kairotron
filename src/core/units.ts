@@ -1,4 +1,4 @@
-import type { TickUnit } from "./types.js";
+import type { DayCount, TickUnit } from "./types.js";
 
 export const TICK_UNITS: readonly TickUnit[] = [
   "second",
@@ -11,39 +11,131 @@ export const TICK_UNITS: readonly TickUnit[] = [
   "year",
 ];
 
-// Abstract-time convention: fixed ticks-per-year ratios (no calendar). The
-// abstract year is exactly 52 weeks = 4 quarters = 364 days, so week↔day (7),
-// quarter↔week (13) and quarter↔day (91) land on whole ticks and schedule
-// intervals across those pairs fire cleanly. Months stay 12/year (≈30.33
-// days — they never divide a real or abstract year evenly). Calendar-accurate
-// day-count conventions (30/360, actual/365, leap years) are a milestone-6
-// overlay on top of this table.
-const TICKS_PER_YEAR: Readonly<Record<TickUnit, number>> = {
-  year: 1,
-  quarter: 4,
-  month: 12,
-  week: 52,
-  day: 364,
-  hour: 364 * 24,
-  minute: 364 * 24 * 60,
-  second: 364 * 24 * 60 * 60,
+export const DAY_COUNTS: readonly DayCount[] = ["abstract", "actual/365", "30/360"];
+
+export const DEFAULT_DAY_COUNT: DayCount = "abstract";
+
+// Every unit has a fixed length in days under each convention; all
+// conversions are ratios through days. "abstract" is the calendar-free
+// default: the abstract year is exactly 52 weeks = 4 quarters = 364 days, so
+// week↔day (7), quarter↔week (13) and quarter↔day (91) land on whole ticks
+// and schedule intervals across those pairs fire cleanly. Months stay
+// 12/year (≈30.33 days — they never divide a real or abstract year evenly).
+// "actual/365" counts the civil year at 365 days (months 365/12); "30/360"
+// puts every month at exactly 30 days. Leap-year-true actual/actual depends
+// on where a calendar basis sits — that is the milestone-7 overlay, not a
+// ratio table.
+const DAYS_PER_TICK: Readonly<Record<DayCount, Readonly<Record<TickUnit, number>>>> = {
+  abstract: {
+    second: 1 / 86400,
+    minute: 1 / 1440,
+    hour: 1 / 24,
+    day: 1,
+    week: 7,
+    month: 364 / 12,
+    quarter: 91,
+    year: 364,
+  },
+  "actual/365": {
+    second: 1 / 86400,
+    minute: 1 / 1440,
+    hour: 1 / 24,
+    day: 1,
+    week: 7,
+    month: 365 / 12,
+    quarter: 365 / 4,
+    year: 365,
+  },
+  "30/360": {
+    second: 1 / 86400,
+    minute: 1 / 1440,
+    hour: 1 / 24,
+    day: 1,
+    week: 7,
+    month: 30,
+    quarter: 90,
+    year: 360,
+  },
 };
 
 export function isTickUnit(name: string): name is TickUnit {
   return (TICK_UNITS as readonly string[]).includes(name);
 }
 
+export function isDayCount(name: string): name is DayCount {
+  return (DAY_COUNTS as readonly string[]).includes(name);
+}
+
+export function daysPerTick(unit: TickUnit, convention: DayCount = DEFAULT_DAY_COUNT): number {
+  return DAYS_PER_TICK[convention][unit];
+}
+
 // plan.md §3: a 7%/year rate is 7/12 per monthly tick, 7/52 per weekly tick.
+// A per-tick rate scales with the tick's share of the per-unit's span.
 export function normalizeRate(
   value: number,
   perUnit: TickUnit,
   tickUnit: TickUnit,
+  convention: DayCount = DEFAULT_DAY_COUNT,
 ): number {
-  return (value * TICKS_PER_YEAR[perUnit]) / TICKS_PER_YEAR[tickUnit];
+  return (value * daysPerTick(tickUnit, convention)) / daysPerTick(perUnit, convention);
 }
 
 // Interval length (not rate): how many tick-units fit in `value perUnit` —
 // 1 quarter spans 3 monthly ticks, but only 0.25 yearly ticks.
-export function ticksPerInterval(value: number, perUnit: TickUnit, tickUnit: TickUnit): number {
-  return (value * TICKS_PER_YEAR[tickUnit]) / TICKS_PER_YEAR[perUnit];
+export function ticksPerInterval(
+  value: number,
+  perUnit: TickUnit,
+  tickUnit: TickUnit,
+  convention: DayCount = DEFAULT_DAY_COUNT,
+): number {
+  return (value * daysPerTick(perUnit, convention)) / daysPerTick(tickUnit, convention);
+}
+
+// Duration-preserving tick conversion: tick numbers measured from 0 are
+// durations, so reticking converts them through days.
+export function convertTicks(
+  ticks: number,
+  fromUnit: TickUnit,
+  toUnit: TickUnit,
+  convention: DayCount = DEFAULT_DAY_COUNT,
+): number {
+  return (ticks * daysPerTick(fromUnit, convention)) / daysPerTick(toUnit, convention);
+}
+
+// Floating-point ratios like 12 × (365/12) don't come back exactly integral;
+// durations this close to a whole tick are rounding noise, not friction.
+const TICK_EPSILON = 1e-9;
+
+export function wholeTicks(
+  ticks: number,
+  what: string,
+  toUnit: TickUnit,
+  convention: DayCount,
+): number {
+  const rounded = Math.round(ticks);
+  if (Math.abs(ticks - rounded) > TICK_EPSILON * Math.max(1, Math.abs(ticks))) {
+    throw new Error(
+      `${what} = ${ticks} '${toUnit}' ticks — not a whole number under the '${convention}' day-count convention`,
+    );
+  }
+  return rounded;
+}
+
+// Re-express a horizon in a different tick unit, preserving its duration.
+// The convention override lets a UI convert under a newly chosen convention;
+// otherwise the horizon keeps its own (default abstract).
+export function retickHorizon(
+  horizon: { start: number; end: number; unit: TickUnit; convention?: DayCount | undefined },
+  toUnit: TickUnit,
+  convention?: DayCount,
+): { start: number; end: number; unit: TickUnit; convention: DayCount } {
+  const conv = convention ?? horizon.convention ?? DEFAULT_DAY_COUNT;
+  if (toUnit === horizon.unit && convention === undefined) return { ...horizon, convention: conv };
+  return {
+    start: wholeTicks(convertTicks(horizon.start, horizon.unit, toUnit, conv), "horizon start", toUnit, conv),
+    end: wholeTicks(convertTicks(horizon.end, horizon.unit, toUnit, conv), "horizon end", toUnit, conv),
+    unit: toUnit,
+    convention: conv,
+  };
 }

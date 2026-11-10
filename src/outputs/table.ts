@@ -1,3 +1,5 @@
+import { snapAtOrBefore } from "../core/fold.js";
+import { DEFAULT_DAY_COUNT, daysPerTick } from "../core/units.js";
 import type { Branch, Snapshot } from "../core/types.js";
 
 function fmt(n: number): string {
@@ -57,15 +59,31 @@ export function formatTable(history: readonly Snapshot[]): string {
 // Tick-by-tick what-if diff: branch minus trunk, only after the fork point
 // (the shared prefix is diff-zero by construction). A "—" marks a stock the
 // variant introduced, or a tick past the trunk's end, with nothing to
-// subtract.
+// subtract. Across a re-ticked fork the trunk is matched by duration (hold
+// last), since branch ticks and trunk ticks no longer share a scale.
 export function formatDiff(base: readonly Snapshot[], branch: Branch): string {
   if (branch.snapshots.length === 0) return "";
   const names = stockNames(branch.snapshots);
   const baseAt = new Map(base.map((s) => [s.t, s]));
-  const after = branch.snapshots.filter((s) => s.t > branch.forkT);
+  const crossUnit =
+    base.length > 0 &&
+    (branch.snapshots[0]!.unit !== base[0]!.unit ||
+      (branch.snapshots[0]!.convention ?? DEFAULT_DAY_COUNT) !== (base[0]!.convention ?? DEFAULT_DAY_COUNT));
+  const baseSnap = (s: Snapshot): Snapshot | undefined => {
+    if (!crossUnit || base.length === 0) return baseAt.get(s.t);
+    const b0 = base[0]!;
+    const last = base[base.length - 1]!;
+    const ratio =
+      daysPerTick(s.unit, s.convention ?? DEFAULT_DAY_COUNT) /
+      daysPerTick(b0.unit, b0.convention ?? DEFAULT_DAY_COUNT);
+    const eqTick = b0.t + (s.t - branch.snapshots[0]!.t) * ratio;
+    if (eqTick > last.t + 1e-9) return undefined;
+    return snapAtOrBefore(base, eqTick);
+  };
+  const after = branch.snapshots.filter((s) => s.t > (branch.forkTBranch ?? branch.forkT));
   if (after.length === 0) return "";
   const rows = after.map((s) => {
-    const b = baseAt.get(s.t);
+    const b = baseSnap(s);
     return [
       String(s.t),
       ...names.map((n) => {

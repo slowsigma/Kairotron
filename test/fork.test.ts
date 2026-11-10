@@ -123,11 +123,27 @@ describe("fork", () => {
     );
   });
 
-  it("rejects a branch horizon whose tick unit differs from the trunk's", () => {
+  it("accepts a re-ticked branch horizon, placing the trunk prefix at whole branch ticks", () => {
     const trunk = run(trunkModel);
     expect(trunk[0]!.unit).toBe("month");
-    expect(() =>
-      fork(trunk, 4, trunkModel, { horizon: { start: 0, end: 12, unit: "year" } }),
-    ).toThrow(/tick unit/);
+    // milestone 6: fork at month 3 = exactly 1 abstract quarter
+    const b = fork(trunk, 3, trunkModel, { horizon: { start: 0, end: 6, unit: "quarter" } });
+    expect(b.forkT).toBe(3); // fork point in trunk ticks...
+    expect(b.forkTBranch).toBe(1); // ...and in branch ticks
+    // months 1 and 2 don't land on whole quarters, so the prefix is sparse
+    expect(b.snapshots.map((s) => s.t)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(b.snapshots[1]!.unit).toBe("quarter");
+    expect(b.snapshots[1]!.stocks.fund).toBe(130); // the trunk's month-3 state
+    expect(b.snapshots[2]!.stocks.fund).toBe(140); // +10 per quarterly tick from here
+    // the sparse prefix entries are re-expressed copies, not the trunk's own
+    expect(b.snapshots[1]).not.toBe(trunk[3]);
+    expect(b.snapshots[1]!.stocks).toBe(trunk[3]!.stocks); // states stay shared
+  });
+
+  it("same-unit forks keep forkTBranch at the fork tick and share snapshots by reference", () => {
+    const trunk = run(trunkModel);
+    const b = fork(trunk, 4, trunkModel);
+    expect(b.forkTBranch).toBe(4);
+    expect(b.snapshots[2]).toBe(trunk[2]);
   });
 });

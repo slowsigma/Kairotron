@@ -1,4 +1,4 @@
-import { fork, run } from "../../src/core/fold.js";
+import { fork, run, snapAtOrBefore } from "../../src/core/fold.js";
 import type { Horizon, Model, Rule, Snapshot } from "../../src/core/types.js";
 import { formatCsv, formatTable } from "../../src/outputs/table.js";
 import {
@@ -80,7 +80,22 @@ const trunk = (): BranchRec => state.branches[0]!;
 function ghostOf(): Ghost | undefined {
   const c = cur();
   if (c.forkT === undefined || trunk().history.length === 0) return undefined;
+  // Across a re-ticked fork the trunk lives on a different tick scale; a
+  // ghost drawn at trunk ticks would land at the wrong moments.
+  if (trunk().history[0].unit !== c.history[0]?.unit) return undefined;
   return { snapshots: trunk().history, forkT: c.forkT };
+}
+
+// The diff pane compares on the trunk's tick scale; a re-ticked branch is
+// diffed in the CLI (formatDiff aligns by duration), not overlaid here.
+function diffable(): boolean {
+  const c = cur();
+  return (
+    c.forkT !== undefined &&
+    trunk().history.length > 0 &&
+    c.history.length > 0 &&
+    trunk().history[0].unit === c.history[0]!.unit
+  );
 }
 
 function collectRuleLines(model: Model, compiled: Compiled): Map<string, number[]> {
@@ -114,8 +129,9 @@ function highlightLines(): Set<number> {
 }
 
 function currentSnap(): Snapshot | undefined {
-  const h = cur().history;
-  return h.find((s) => s.t === state.playhead) ?? h[0];
+  // Hold-last: a playhead parked in the sparse gap of a cross-unit fork
+  // reads the most recent committed snapshot, not the first one.
+  return snapAtOrBefore(cur().history, state.playhead);
 }
 
 function renderView(): void {
@@ -125,7 +141,7 @@ function renderView(): void {
   const stocks = renderStocks(stocksSvg, c.history, state.playhead, state.mode, state.hidden, ghost);
   const derived = renderDerived(derivedSvg, c.history, state.playhead, state.hidden, ghost);
   const diffPane = $("diff-pane");
-  if (c.forkT !== undefined && trunk().history.length > 0) {
+  if (c.forkT !== undefined && diffable()) {
     diffPane.hidden = false;
     renderLegend($("diff-legend"), renderDiff(diffSvg, trunk().history, c.history, c.forkT, state.playhead, state.hidden));
   } else {
@@ -208,6 +224,7 @@ function runNow(): void {
       ($("h-start") as unknown as HTMLInputElement).value,
       ($("h-end") as unknown as HTMLInputElement).value,
       ($("h-unit") as unknown as HTMLSelectElement).value,
+      ($("h-convention") as unknown as HTMLSelectElement).value,
       base,
     );
     const horizon = override ?? base;
@@ -236,7 +253,6 @@ function runNow(): void {
           continue;
         }
         try {
-          if (b.horizon.unit !== horizon.unit) throw new Error("tick unit changed");
           b.history = fork(history, b.forkT, b.model, { label: b.label, horizon: b.horizon }).snapshots;
           reforked++;
         } catch {
@@ -254,9 +270,6 @@ function runNow(): void {
       status = `ok — ${history.length - 1} ticks · ${ms.toFixed(1)}ms${forkNote}`;
     } else {
       if (trunk().history.length === 0) throw new Error("branches need the trunk — run main first");
-      if (horizon.unit !== trunk().horizon.unit) {
-        throw new Error("can't change the tick unit across a fork yet (that's milestone 6)");
-      }
       const b = fork(trunk().history, c.forkT, compiled.model, { label: c.label, horizon });
       const ms = performance.now() - t;
       c.code = code;

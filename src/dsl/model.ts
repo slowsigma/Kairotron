@@ -14,7 +14,7 @@ import type {
   TickUnit,
   TransferRule,
 } from "../core/types.js";
-import { TICK_UNITS, isTickUnit } from "../core/units.js";
+import { DAY_COUNTS, TICK_UNITS, isDayCount, isTickUnit } from "../core/units.js";
 
 type Amount = number | ((ctx: TickContext) => number);
 
@@ -54,6 +54,11 @@ export function model(spec: ModelSpec): Model {
   }
   if (!isTickUnit(horizon.unit)) {
     throw new Error(`unknown tick unit '${horizon.unit}' (expected one of: ${TICK_UNITS.join(", ")})`);
+  }
+  if (horizon.convention !== undefined && !isDayCount(horizon.convention)) {
+    throw new Error(
+      `unknown day-count convention '${horizon.convention}' (expected one of: ${DAY_COUNTS.join(", ")})`,
+    );
   }
   for (const [name, value] of Object.entries(spec.stocks)) {
     if (!Number.isFinite(value)) throw new Error(`stock '${name}' initial value must be finite (got ${value})`);

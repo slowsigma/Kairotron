@@ -2,8 +2,8 @@
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fork, run } from "./core/fold.js";
-import { isTickUnit } from "./core/units.js";
-import type { Branch, Horizon, Model, TickUnit } from "./core/types.js";
+import { DAY_COUNTS, isDayCount, isTickUnit, retickHorizon } from "./core/units.js";
+import type { Branch, DayCount, Horizon, Model, TickUnit } from "./core/types.js";
 import { formatCsv, formatDiff, formatFlows, formatTable } from "./outputs/table.js";
 
 function usage(code: number): never {
@@ -14,7 +14,10 @@ function usage(code: number): never {
       "options:",
       "  --csv            print CSV instead of the table",
       "  --flows          also print per-tick deltas with rule provenance",
-      "  --unit <unit>    override the tick unit (re-normalizes rates)",
+      "  --unit <unit>    re-tick the horizon to a new unit (duration-preserving,",
+      "                   rates re-normalized; --end overrides the converted end)",
+      "  --convention <c> day-count convention for unit conversions",
+      `                   (${DAY_COUNTS.join(", ")}; default abstract)`,
       "  --end <n>        override the horizon end tick",
       "  --fork-at <t>    fork a what-if branch at tick t (from <variant>)",
       "  --variant <file> model file the branch continues with",
@@ -31,6 +34,7 @@ let csv = false;
 let flows = false;
 let diff = false;
 let unitOverride: TickUnit | undefined;
+let conventionOverride: DayCount | undefined;
 let end: number | undefined;
 let forkAt: number | undefined;
 let variantFile: string | undefined;
@@ -49,6 +53,13 @@ for (let i = 0; i < args.length; i++) {
       usage(1);
     }
     unitOverride = value;
+  } else if (arg === "--convention") {
+    const value = args[++i];
+    if (!value || !isDayCount(value)) {
+      console.error(`unknown day-count convention: ${value ?? "(missing)"} (expected ${DAY_COUNTS.join(", ")})`);
+      usage(1);
+    }
+    conventionOverride = value;
   } else if (arg === "--end") {
     const raw = args[++i];
     end = raw === undefined ? Number.NaN : Number(raw);
@@ -72,10 +83,6 @@ if (!file || positional.length > 1) usage(1);
 if (forkAt !== undefined && !variantFile) {
   console.error("--fork-at requires --variant (the model the branch continues with)");
   usage(1);
-}
-if (forkAt !== undefined && unitOverride !== undefined) {
-  console.error("--fork-at cannot change the tick unit yet: tick re-normalization across forks is milestone 6");
-  process.exit(1);
 }
 
 // Load the user's model file. Models are TypeScript imports deep, so the
@@ -120,13 +127,21 @@ async function loadModel(file: string): Promise<Model> {
 
 const model = await loadModel(file);
 
+// Re-ticking preserves the horizon's duration: 0..12 monthly ticks re-express
+// as 0..1 yearly tick, and rates re-normalize. --end (in the new unit) opts
+// out for the end bound; --convention overrides the model's day count.
 let horizon: Horizon | undefined;
-if (unitOverride !== undefined || end !== undefined) {
-  horizon = {
-    start: model.horizon.start,
-    end: end ?? model.horizon.end,
-    unit: unitOverride ?? model.horizon.unit,
-  };
+if (unitOverride !== undefined || end !== undefined || conventionOverride !== undefined) {
+  try {
+    horizon = retickHorizon(
+      { ...model.horizon, convention: conventionOverride ?? model.horizon.convention },
+      unitOverride ?? model.horizon.unit,
+    );
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e));
+    process.exit(1);
+  }
+  if (end !== undefined) horizon = { ...horizon, end };
 }
 
 const history = run(model, horizon);

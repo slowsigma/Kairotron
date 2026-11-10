@@ -1,4 +1,5 @@
-import type { Horizon, Model, SourceLocation, TickUnit } from "../../src/core/types.js";
+import type { DayCount, Horizon, Model, SourceLocation, TickUnit } from "../../src/core/types.js";
+import { DEFAULT_DAY_COUNT, retickHorizon } from "../../src/core/units.js";
 import {
   between,
   derived,
@@ -58,11 +59,35 @@ export function userLine(loc: SourceLocation | undefined, compiled: Pick<Compile
   return line >= 1 && line <= compiled.lineCount ? line : undefined;
 }
 
-export function horizonOverride(start: string, end: string, unit: string, base: Horizon): Horizon | undefined {
-  const s = start.trim() === "" ? base.start : Number(start);
-  const e = end.trim() === "" ? base.end : Number(end);
-  const u = unit === "" ? base.unit : (unit as TickUnit);
+// Horizon override from the UI. Changing the unit with start/end left on
+// "auto" re-ticks the model's own horizon — duration-preserving, rates
+// re-normalize. Explicit start/end are raw ticks in the chosen unit (opting
+// out of duration preservation); the convention relabels the conversion.
+export function horizonOverride(
+  start: string,
+  end: string,
+  unit: string,
+  convention: string,
+  base: Horizon,
+): Horizon | undefined {
+  const sAuto = start.trim() === "";
+  const eAuto = end.trim() === "";
+  const s = sAuto ? base.start : Number(start);
+  const e = eAuto ? base.end : Number(end);
   if (!Number.isFinite(s) || !Number.isFinite(e)) throw new Error(`horizon start/end must be numbers`);
-  if (!(e > s)) throw new Error(`horizon end (${e}) must exceed start (${s})`);
-  return s === base.start && e === base.end && u === base.unit ? undefined : { start: s, end: e, unit: u };
+  const u = (unit === "" ? base.unit : unit) as TickUnit;
+  const conv = convention === "" ? base.convention : (convention as DayCount);
+  const horizon: Horizon =
+    u !== base.unit && sAuto && eAuto
+      ? retickHorizon({ ...base }, u, conv)
+      : { start: s, end: e, unit: u, convention: conv };
+  if (!(horizon.end > horizon.start)) {
+    throw new Error(`horizon end (${horizon.end}) must exceed start (${horizon.start})`);
+  }
+  const unchanged =
+    horizon.start === base.start &&
+    horizon.end === base.end &&
+    horizon.unit === base.unit &&
+    (horizon.convention ?? DEFAULT_DAY_COUNT) === (base.convention ?? DEFAULT_DAY_COUNT);
+  return unchanged ? undefined : horizon;
 }

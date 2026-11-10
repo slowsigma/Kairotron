@@ -1,3 +1,4 @@
+import { snapAtOrBefore } from "../../src/core/fold.js";
 import type { Snapshot } from "../../src/core/types.js";
 
 export type ChartMode = "stacked" | "lines";
@@ -239,7 +240,7 @@ export function renderStocks(
       grid(h, yOf, min, max, t0, tN) + zero + ghostSvg + areas.join("") + playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
   }
 
-  const snap = history.find((s) => s.t === playheadT) ?? history[0];
+  const snap = snapAtOrBefore(history, playheadT) ?? history[0];
   return all.map((n, i) => ({ name: n, color: colorOf(i), value: snap.stocks[n] ?? 0 }));
 }
 
@@ -305,7 +306,7 @@ export function renderDerived(
     paths.join("") +
     playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
 
-  const snap = history.find((s) => s.t === playheadT) ?? history[0];
+  const snap = snapAtOrBefore(history, playheadT) ?? history[0];
   return names.map((n, i) => ({ name: `~${n}`, color: colorOf(i), value: snap.derived[n] ?? 0 }));
 }
 

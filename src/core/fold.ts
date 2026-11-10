@@ -1,6 +1,7 @@
 import type {
   Branch,
   ConstValue,
+  DayCount,
   Delta,
   DerivedContext,
   ForkSpec,
@@ -14,7 +15,7 @@ import type {
   TickContext,
   TickUnit,
 } from "./types.js";
-import { normalizeRate, ticksPerInterval } from "./units.js";
+import { DEFAULT_DAY_COUNT, daysPerTick, normalizeRate, ticksPerInterval, wholeTicks } from "./units.js";
 
 function isRate(v: ConstValue): v is Rate {
   return typeof v === "object" && v !== null && v.kind === "rate";
@@ -23,24 +24,30 @@ function isRate(v: ConstValue): v is Rate {
 export function scheduleIntervalTicks(
   interval: number | Rate,
   tickUnit: TickUnit,
+  convention: DayCount = DEFAULT_DAY_COUNT,
 ): number {
   const ticks =
     typeof interval === "number"
       ? interval
-      : ticksPerInterval(interval.value, interval.perUnit, tickUnit);
+      : ticksPerInterval(interval.value, interval.perUnit, tickUnit, convention);
   if (!Number.isInteger(ticks) || ticks <= 0) {
     const shown = typeof interval === "number" ? `${interval}` : `${interval.value}/${interval.perUnit}`;
     throw new Error(
-      `schedule interval ${shown} does not land on a whole number of '${tickUnit}' ticks (${ticks})`,
+      `schedule interval ${shown} does not land on a whole number of '${tickUnit}' ticks (${ticks}) under the '${convention}' day-count convention`,
     );
   }
   return ticks;
 }
 
-export function scheduleFires(spec: ScheduleSpec, t: number, tickUnit: TickUnit): boolean {
+export function scheduleFires(
+  spec: ScheduleSpec,
+  t: number,
+  tickUnit: TickUnit,
+  convention: DayCount = DEFAULT_DAY_COUNT,
+): boolean {
   switch (spec.kind) {
     case "every": {
-      const n = scheduleIntervalTicks(spec.interval, tickUnit);
+      const n = scheduleIntervalTicks(spec.interval, tickUnit, convention);
       return t >= spec.offset && (t - spec.offset) % n === 0;
     }
     case "once":
@@ -48,6 +55,23 @@ export function scheduleFires(spec: ScheduleSpec, t: number, tickUnit: TickUnit)
     case "between":
       return t >= spec.from && t <= spec.to;
   }
+}
+
+// Last snapshot with t <= the query (snapshots are ordered by tick). Reads
+// before the first snapshot clamp to it, matching lag()'s leading-edge
+// semantics; the scan is binary because cross-unit forks leave the shared
+// prefix sparse — a tick-per-tick index only exists for same-unit histories.
+export function snapAtOrBefore(history: readonly Snapshot[], t: number): Snapshot | undefined {
+  if (history.length === 0) return undefined;
+  if (t <= history[0]!.t) return history[0];
+  let lo = 0;
+  let hi = history.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (history[mid]!.t <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return history[lo];
 }
 
 export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[] {
@@ -77,21 +101,81 @@ export function fork(
   const horizon = spec.horizon ?? model.horizon;
   if (!horizon) throw new Error("forked model has no horizon and none was passed in the fork spec");
   const trunkUnit = trunk[0]!.unit;
-  if (horizon.unit !== trunkUnit) {
-    throw new Error(
-      `can't change the tick unit across a fork yet (trunk is '${trunkUnit}', branch is '${horizon.unit}'; that's milestone 6)`,
-    );
+  const branchUnit = horizon.unit;
+  const crossUnit = branchUnit !== trunkUnit;
+  if (!crossUnit) {
+    if (atT < horizon.start) {
+      throw new Error(`fork point t=${atT} is before the branch horizon start (${horizon.start})`);
+    }
+    if (atT >= horizon.end) {
+      throw new Error(
+        `fork point t=${atT} must be before the branch horizon end (${horizon.end}) — nothing left to run`,
+      );
+    }
   }
-  if (atT < horizon.start) {
-    throw new Error(`fork point t=${atT} is before the branch horizon start (${horizon.start})`);
+  const prefix = crossUnit
+    ? remapPrefix(trunk.slice(0, idx + 1), horizon)
+    : trunk.slice(0, idx + 1);
+  if (crossUnit) {
+    const forkT = prefix[prefix.length - 1]!.t;
+    if (forkT >= horizon.end) {
+      throw new Error(
+        `fork point t=${atT} maps to ${forkT} '${branchUnit}' ticks, at or past the branch horizon end (${horizon.end}) — nothing left to run`,
+      );
+    }
   }
-  if (atT >= horizon.end) {
-    throw new Error(
-      `fork point t=${atT} must be before the branch horizon end (${horizon.end}) — nothing left to run`,
-    );
+  const snapshots = fold(model, horizon, { prefix, stocks: spec.stocks });
+  return Object.freeze({
+    label: spec.label ?? "branch",
+    forkT: atT,
+    forkTBranch: prefix[prefix.length - 1]!.t,
+    horizon,
+    snapshots,
+  });
+}
+
+// Tick re-normalization across a fork: the branch continues the trunk's
+// history under a different tick unit, so the shared prefix is re-expressed
+// by duration — tick numbers are durations from 0, and each trunk snapshot
+// is placed at the branch tick with the same elapsed time. Snapshots whose
+// duration doesn't land on a whole branch tick have no representable moment
+// there and are dropped; lag() reads the surviving sparse prefix with
+// hold-last semantics (snapAtOrBefore). The fork snapshot itself must land
+// exactly — a what-if has to happen at a real branch tick.
+function remapPrefix(prefix: readonly Snapshot[], horizon: Horizon): readonly Snapshot[] {
+  const t0 = prefix[0]!.t;
+  const trunkUnit = prefix[0]!.unit;
+  const trunkConv = prefix[0]!.convention ?? DEFAULT_DAY_COUNT;
+  const conv = horizon.convention ?? DEFAULT_DAY_COUNT;
+  const branchUnit = horizon.unit;
+  const ratio = daysPerTick(trunkUnit, trunkConv) / daysPerTick(branchUnit, conv);
+  const out: Snapshot[] = [];
+  for (let i = 0; i < prefix.length; i++) {
+    const s = prefix[i]!;
+    const mapped = horizon.start + (s.t - t0) * ratio;
+    const isFork = i === prefix.length - 1;
+    let tick: number;
+    try {
+      tick = wholeTicks(mapped, `trunk snapshot t=${s.t}`, branchUnit, conv);
+    } catch (e) {
+      if (isFork) throw e;
+      continue;
+    }
+    const remapped = Object.freeze({
+      t: tick,
+      unit: branchUnit,
+      convention: conv,
+      stocks: s.stocks,
+      derived: s.derived,
+      deltas: s.deltas,
+    });
+    // Two trunk moments rounding onto one branch tick (floating-point
+    // adjacency at the epsilon boundary) keep the later snapshot: it holds
+    // the newer state.
+    if (out.length > 0 && out[out.length - 1]!.t === tick) out[out.length - 1] = remapped;
+    else out.push(remapped);
   }
-  const snapshots = fold(model, horizon, { prefix: trunk.slice(0, idx + 1), stocks: spec.stocks });
-  return Object.freeze({ label: spec.label ?? "branch", forkT: atT, horizon, snapshots });
+  return out;
 }
 
 interface FoldSeed {
@@ -101,6 +185,7 @@ interface FoldSeed {
 
 function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapshot[] {
   const { start, end } = horizon;
+  const convention = horizon.convention ?? DEFAULT_DAY_COUNT;
   if (!Number.isInteger(start) || !Number.isInteger(end)) {
     throw new Error(`horizon bounds must be integer tick counts (got ${start}..${end})`);
   }
@@ -125,7 +210,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
   const perTickFn = (name: string): number => {
     const rate = rateConstants[name];
     if (!rate) throw new Error(`no rate constant named '${name}'`);
-    return normalizeRate(rate.value, rate.perUnit, horizon.unit);
+    return normalizeRate(rate.value, rate.perUnit, horizon.unit, convention);
   };
 
   // Read-only projections (plan.md): pure in (stocks, constants, t) plus
@@ -191,6 +276,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
     return Object.freeze({
       t,
       unit: horizon.unit,
+      convention,
       stocks: Object.freeze({ ...values }),
       derived: Object.freeze({ ...derived }),
       deltas: Object.freeze(deltas.map((d) => Object.freeze({ ...d }))),
@@ -221,9 +307,8 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
     history.push(freeze(start, stocks, []));
   }
 
-  // Absolute-tick anchor for lag lookups: index 0 of the branch's history is
-  // the trunk's S0 for forks, the model's own S0 otherwise.
-  const t0 = history[0]!.t;
+  // Fold on from the last committed snapshot (S0 for plain runs, the fork
+  // snapshot for seeded ones).
   const from = history[history.length - 1]!.t;
 
   for (let t = from + 1; t <= end; t++) {
@@ -242,17 +327,14 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
           if (!Number.isInteger(ticks) || ticks < 1) {
             throw new Error(`lag requires a whole number of ticks >= 1 (got ${ticks})`);
           }
-          // With input validation done, the lookup can only land inside the
-          // committed history except at the leading edge: a lag reaching back
-          // before the branch's first snapshot has nothing to read, so it
-          // clamps to that snapshot by design — S0 for plain runs, the trunk's
-          // S0 for forks past the horizon start. Lags across a fork point
-          // read the shared prefix. That dichotomy is pinned by the
+          // Hold-last read of the committed history: exact on dense
+          // same-unit runs, and well-defined on the sparse prefix a
+          // cross-unit fork shares (the value in force as of the queried
+          // moment). Reads reaching back before the branch's first
+          // snapshot clamp to it by design — S0 for plain runs, the
+          // trunk's S0 for forks past the horizon start — pinned by the
           // "lags reaching before S0 clamp" test in test/gating.test.ts.
-          const committed = history.length - 1;
-          const index = Math.max(t - ticks - t0, 0);
-          const clamped = Math.min(index, committed);
-          const value = history[clamped]?.stocks[stock];
+          const value = snapAtOrBefore(history, t - ticks)?.stocks[stock];
           if (value === undefined) {
             throw new Error(`lag references unknown stock '${stock}'`);
           }
@@ -269,7 +351,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
           if (!rule.guard(ctx)) applyRule(rule.rule, ctx);
           return;
         case "on":
-          if (scheduleFires(rule.schedule, t, horizon.unit)) applyRule(rule.rule, ctx);
+          if (scheduleFires(rule.schedule, t, horizon.unit, convention)) applyRule(rule.rule, ctx);
           return;
         case "flow": {
           const amount = rule.amount(ctx);
