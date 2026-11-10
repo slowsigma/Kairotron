@@ -1,4 +1,5 @@
 import { snapAtOrBefore } from "../core/fold.js";
+import { formatCalDate, tickToMs } from "../core/calendar.js";
 import { DEFAULT_DAY_COUNT, daysPerTick } from "../core/units.js";
 import type { Branch, Snapshot } from "../core/types.js";
 
@@ -25,6 +26,18 @@ function derivedNames(history: readonly Snapshot[]): string[] {
   return [...names];
 }
 
+// The calendar overlay (milestone 7): a timeline whose snapshots carry a
+// basis gets a civil-date column. A snapshot without one (a shared fork
+// prefix from an undated trunk) prints a dash, matching the missing-stock
+// convention rather than inventing an anchor.
+const isDated = (history: readonly Snapshot[]): boolean =>
+  history.some((s) => s.basis !== undefined);
+
+const dateCell = (s: Snapshot): string =>
+  s.basis === undefined
+    ? "—"
+    : formatCalDate(tickToMs(s.t, s.unit, s.basis, s.convention ?? DEFAULT_DAY_COUNT));
+
 function aligned(header: readonly string[], rows: readonly (readonly string[])[]): string {
   const widths = header.map((h, i) => {
     let width = h.length;
@@ -44,12 +57,14 @@ export function formatTable(history: readonly Snapshot[]): string {
   if (history.length === 0) return "";
   const names = stockNames(history);
   const derived = derivedNames(history);
-  const header = ["t", ...names, ...derived.map((n) => `~${n}`)];
+  const dated = isDated(history);
+  const header = ["t", ...(dated ? ["date"] : []), ...names, ...derived.map((n) => `~${n}`)];
   // A fork variant can introduce stocks/derivations mid-run; the shared prefix
   // genuinely doesn't carry them, so print a dash rather than a fake 0.00.
   const cell = (v: number | undefined): string => (v === undefined ? "—" : fmt(v));
   const rows = history.map((s) => [
     String(s.t),
+    ...(dated ? [dateCell(s)] : []),
     ...names.map((n) => cell(s.stocks[n])),
     ...derived.map((n) => cell(s.derived[n])),
   ]);
@@ -106,15 +121,17 @@ export function formatCsv(history: readonly Snapshot[]): string {
   if (history.length === 0) return "";
   const names = stockNames(history);
   const derived = derivedNames(history);
+  const dated = isDated(history);
   // A fork variant can introduce stocks/derivations mid-run; the shared prefix
   // genuinely has no value for them. Emit an empty field rather than a fake 0,
   // matching formatTable's dash (and keeping real zeros distinguishable).
   const cell = (v: number | undefined): string => (v === undefined ? "" : String(v));
   const rows = [
-    ["t", ...names, ...derived].map(csvField).join(","),
+    ["t", ...(dated ? ["date"] : []), ...names, ...derived].map(csvField).join(","),
     ...history.map((s) =>
       [
         String(s.t),
+        ...(dated ? [s.basis === undefined ? "" : dateCell(s)] : []),
         ...names.map((n) => cell(s.stocks[n])),
         ...derived.map((n) => cell(s.derived[n])),
       ].join(","),

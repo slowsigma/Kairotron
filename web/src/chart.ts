@@ -3,6 +3,10 @@ import type { Snapshot } from "../../src/core/types.js";
 
 export type ChartMode = "stacked" | "lines";
 
+// X-axis labeler: plain tick numbers by default, calendar labels once the
+// timeline carries a basis (plan.md: axis labels depend on the time mode).
+export type XLabel = (t: number) => string;
+
 export interface LegendEntry {
   name: string;
   color: string;
@@ -68,7 +72,15 @@ export function tickAt(svg: SVGSVGElement, clientX: number, t0: number, tN: numb
   return Math.round(t0 + frac * (tN - t0));
 }
 
-function grid(h: number, yOf: (v: number) => number, min: number, max: number, t0: number, tN: number): string {
+function grid(
+  h: number,
+  yOf: (v: number) => number,
+  min: number,
+  max: number,
+  t0: number,
+  tN: number,
+  xLabel?: XLabel,
+): string {
   const parts: string[] = [];
   for (let i = 0; i <= 3; i++) {
     const v = min + ((max - min) * i) / 3;
@@ -79,7 +91,7 @@ function grid(h: number, yOf: (v: number) => number, min: number, max: number, t
   const span = tN - t0;
   const step = Math.max(1, Math.round(span / 6));
   for (let t = t0; t <= tN; t += step) {
-    parts.push(`<text x="${xFor(t, t0, tN) - 8}" y="${h - 6}">${t}</text>`);
+    parts.push(`<text x="${xFor(t, t0, tN) - 8}" y="${h - 6}">${xLabel ? xLabel(t) : t}</text>`);
   }
   return parts.join("");
 }
@@ -132,6 +144,7 @@ export function renderStocks(
   mode: ChartMode,
   hidden: ReadonlySet<string>,
   ghost?: Ghost,
+  xLabel?: XLabel,
 ): LegendEntry[] {
   const h = 280;
   if (history.length === 0) {
@@ -210,7 +223,7 @@ export function renderStocks(
       (s, n) => ghostStack.get(n)?.get(s.t),
     );
     svg.innerHTML =
-      grid(h, yOf, min, max, t0, tN) + ghostSvg + areas.join("") + playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
+      grid(h, yOf, min, max, t0, tN, xLabel) + ghostSvg + areas.join("") + playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
   } else {
     min = Infinity;
     max = -Infinity;
@@ -237,7 +250,7 @@ export function renderStocks(
     const zero = min < 0 && max > 0 ? `<line class="zero" x1="${PL}" y1="${yOf(0)}" x2="${W - PR}" y2="${yOf(0)}"/>` : "";
     const ghostSvg = ghostLines(ghost, names, (n) => all.indexOf(n), yOf, t0, tN, ghostPick);
     svg.innerHTML =
-      grid(h, yOf, min, max, t0, tN) + zero + ghostSvg + areas.join("") + playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
+      grid(h, yOf, min, max, t0, tN, xLabel) + zero + ghostSvg + areas.join("") + playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
   }
 
   const snap = snapAtOrBefore(history, playheadT) ?? history[0];
@@ -250,6 +263,7 @@ export function renderDerived(
   playheadT: number,
   hidden: ReadonlySet<string>,
   ghost?: Ghost,
+  xLabel?: XLabel,
 ): LegendEntry[] {
   const h = 150;
   if (history.length === 0) {
@@ -298,11 +312,12 @@ export function renderDerived(
       }
     });
   }
+  const rx = W - PR - (xLabel ? 66 : 20);
   svg.innerHTML =
     `<line class="grid" x1="${PL}" y1="${PT}" x2="${W - PR}" y2="${PT}"/>` +
     `<text x="4" y="${PT + 8}">derived ~</text>` +
-    `<text x="${W - PR - 20}" y="${h - 6}">${tN}</text>` +
-    `<text x="${PL}" y="${h - 6}">${t0}</text>` +
+    `<text x="${rx}" y="${h - 6}">${xLabel ? xLabel(tN) : tN}</text>` +
+    `<text x="${PL}" y="${h - 6}">${xLabel ? xLabel(t0) : t0}</text>` +
     paths.join("") +
     playheadMarkup(playheadT, t0, tN, h, ghost?.forkT);
 
@@ -319,6 +334,7 @@ export function renderDiff(
   forkT: number,
   playheadT: number,
   hidden: ReadonlySet<string>,
+  xLabel?: XLabel,
 ): LegendEntry[] {
   const h = 150;
   if (trunk.length === 0 || branch.length === 0) {
@@ -359,11 +375,12 @@ export function renderDiff(
         .join("L")}"/>`,
     );
   }
+  const rx = W - PR - (xLabel ? 66 : 20);
   svg.innerHTML =
     `<line class="grid" x1="${PL}" y1="${PT}" x2="${W - PR}" y2="${PT}"/>` +
     `<text x="4" y="${PT + 8}">Δ vs trunk</text>` +
-    `<text x="${PL}" y="${h - 6}">${forkT}</text>` +
-    `<text x="${W - PR - 20}" y="${h - 6}">${tN}</text>` +
+    `<text x="${PL}" y="${h - 6}">${xLabel ? xLabel(forkT) : forkT}</text>` +
+    `<text x="${rx}" y="${h - 6}">${xLabel ? xLabel(tN) : tN}</text>` +
     (min < 0 && max > 0 ? `<line class="zero" x1="${PL}" y1="${yOf(0)}" x2="${W - PR}" y2="${yOf(0)}"/>` : "") +
     lines.join("") +
     playheadMarkup(playheadT, t0, tN, h, forkT);

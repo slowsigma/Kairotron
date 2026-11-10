@@ -1,8 +1,17 @@
+import { formatCalDate, tickToMs } from "../../src/core/calendar.js";
+import { DEFAULT_DAY_COUNT } from "../../src/core/units.js";
 import type { Snapshot } from "../../src/core/types.js";
 import { fmtNum } from "./chart.js";
 
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// Calendar overlay: an undated timeline shows ticks only; a dated one adds
+// the civil moment of the snapshot.
+const whenLabel = (snap: Snapshot): string =>
+  snap.basis === undefined
+    ? ""
+    : ` · ${formatCalDate(tickToMs(snap.t, snap.unit, snap.basis, snap.convention ?? DEFAULT_DAY_COUNT))}`;
 
 export function renderInspector(
   root: HTMLElement,
@@ -31,7 +40,7 @@ export function renderInspector(
     .join("");
 
   root.innerHTML =
-    `<h4>t = ${snap.t} (${tickUnit} ticks)</h4>` +
+    `<h4>t = ${snap.t} (${tickUnit} ticks)${whenLabel(snap)}</h4>` +
     `<table class="insp">${stockRows}</table>` +
     (derivedRows ? `<h4>derived</h4><table class="insp">${derivedRows}</table>` : "") +
     `<h4>this tick's deltas (${snap.deltas.length})</h4>` +

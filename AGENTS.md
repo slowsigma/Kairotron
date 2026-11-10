@@ -23,6 +23,13 @@ Companion research: `docs/Concept-Search.md` (domain math),
   finite horizon only — no infinite looping.
 - **Abstract time is the default**: ticks are plain numbers; a calendar basis is
   a display/gating overlay (`when(t, tickUnit, basis)`), never engine semantics.
+  The basis is `horizon.basis = date("YYYY-MM-DD")` (epoch-ms UTC), requires a
+  calendar convention (`actual/365`/`30/360`, never `abstract`), anchors tick 0,
+  and survives re-ticks and forks (a branch inherits the trunk's). Month/quarter/
+  year ticks step the civil calendar with day-of-month clamping (leap-true;
+  30/360 anchors at day 30); other units convert through the ratio table. Rules
+  gate via `c.date()` or the `when(t, unit, basis)` overload; snapshots carry
+  `basis` so tables/CSV gain a `date` column and chart axes get calendar labels.
 - **Units are semantics**: every rate carries `(value, perUnit)`; the engine
   normalizes rates to the tick unit at run time. Changing the tick unit can
   change model semantics, not just tempo.
@@ -54,8 +61,10 @@ Companion research: `docs/Concept-Search.md` (domain math),
 6. Tick re-normalization + day-count conventions (`DayCount` on the horizon,
    duration-preserving `retickHorizon`, cross-unit forks with a duration-mapped
    sparse prefix and hold-last lag) ✓ done
-7. Calendar overlay (basis + `when(...)`) ← current
-8. Monte Carlo mode
+7. Calendar overlay (`horizon.basis` + `date()`, `when(t, unit, basis)` / `c.date()`
+   gating, civil tick↔date conversion with leap-true clamping, date column &
+   calendar axes; basis survives re-ticks and forks) ✓ done
+8. Monte Carlo mode ← current
 
 ## Conventions
 

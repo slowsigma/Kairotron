@@ -26,6 +26,14 @@ describe("browser REPL end to end (jsdom)", () => {
     expect((doc().querySelector("#editor textarea") as HTMLTextAreaElement).value).toContain("model({");
   });
 
+  it("displays the declared basis: playhead, inspector header, and calendar axis", () => {
+    // the sample anchors tick 0 to 2026-01-01 (actual/365)
+    expect(el("#playhead-label").textContent).toContain("2026-01-01");
+    expect(el("#tab-body").textContent).toContain("t = 0 (year ticks) · 2026-01-01");
+    expect(el("#stocks-chart").innerHTML).toContain("2026-01-01");
+    expect(el("#derived-chart").innerHTML).toContain("2066-01-01");
+  });
+
   it("renders legends for stocks and derived series", () => {
     const names = all("#stocks-legend .item").map((i) => i.dataset.name);
     expect(names).toEqual(["preTax", "cash"]);
@@ -40,6 +48,8 @@ describe("browser REPL end to end (jsdom)", () => {
     slider.value = "1";
     slider.dispatchEvent(new dom.window.Event("input"));
     expect(el("#playhead-label").textContent).toContain("t=1");
+    // one yearly tick from the 2026 basis is the 2027 civil year
+    expect(el("#playhead-label").textContent).toContain("2027-01-01");
     expect(all("#tab-body tr.delta").length).toBe(6); // 4 flows + 2 sides of the transfer
     const lit = all("#editor .mirror .ln.hl").map((l) => l.textContent ?? "");
     for (const rule of ["contribution", "growth", "salary divert", "interest", "annual top-up"]) {
@@ -69,6 +79,9 @@ describe("browser REPL end to end (jsdom)", () => {
     const pre = el("#tab-body pre").textContent ?? "";
     expect(pre).toContain("preTax");
     expect(pre).toContain("~netWorth");
+    // the dated sample prints a civil-date column
+    expect(pre).toContain("date");
+    expect(pre).toContain("2026-01-01");
   });
 
   it("forks at the playhead, diverges the variant, diffs it, and discards it", () => {

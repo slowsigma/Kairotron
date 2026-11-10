@@ -128,8 +128,13 @@ The whole engine is `reduce` over ticks: `s_t = step(s_{t-1}, t, params)`.
   vectors, each tagged with the deltas and the source locations that produced
   them. Nothing is rewritten — the sequence of fixed values *is* the mutation.
 - **Abstract time by default.** Ticks are plain numbers. A calendar is a
-  display overlay you add later (`date(1971-03-15)` basis renders ticks as
-  dates), never engine semantics — exactly Tidal's `Time = Rational` position.
+  display overlay you add later — `horizon.basis = date("1971-03-15")` anchors
+  tick 0 to a civil date, and *nothing else changes*: the fold stays tick-pure.
+  Rules then gate on dates (`when(c => c.date().year >= 2044, ...)`, or the
+  plan-shaped `when(t, "month", basis)`), snapshots carry the basis, tables and
+  CSV gain a `date` column, and chart axes render calendar labels. With a basis,
+  month/quarter/year ticks step the *civil* calendar (Jan 31 + 1 monthly tick →
+  Feb 28/29 — leap-true under `actual/365`, clamped at 30 under `30/360`).
 - **Rates carry units.** `pct(7, "year")` becomes 7/12 per monthly tick,
   7/52 per weekly tick. Change the tick unit, change the meaning. Cross-unit
   conversion is duration-preserving and governed by a declared **day-count
@@ -161,6 +166,7 @@ Realistic exemplars, each verified tick-by-tick against a hand-rolled loop in
 | [`reservoir.ts`](examples/reservoir.ts) | hydrology | monthly rates on daily ticks, proportional evaporation |
 | [`epidemic-sir.ts`](examples/epidemic-sir.ts) | epidemiology | stock↔stock transfers, guarded recurring schedules |
 | [`supply-chain.ts`](examples/supply-chain.ts) | operations | delays, conservation of units, bullwhip oscillation |
+| [`rmd-calendar.ts`](examples/rmd-calendar.ts) | personal finance | calendar basis: date-gated contributions and RMDs (`age >= 73`) |
 
 ## Browser REPL
 
@@ -204,7 +210,7 @@ Milestones from [`docs/plan.md`](docs/plan.md):
 - [x] Browser REPL — editor, stacked timeline, scrubber, code highlighting
 - [x] Branches & what-if — fork from any snapshot (free, because states never mutate)
 - [x] Tick re-normalization — same model, new tick unit; day-count conventions
-- [ ] Calendar overlay — basis constant + calendar display and gating
+- [x] Calendar overlay — basis + `date()`, civil date gating/display (`when(...)`, `c.date()`), date column & calendar axes
 - [ ] Monte Carlo mode — random rate sequences, worker pool, percentile bands
 
 ## Design docs

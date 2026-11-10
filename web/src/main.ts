@@ -1,4 +1,5 @@
 import { fork, run, snapAtOrBefore } from "../../src/core/fold.js";
+import { formatCalDate, tickToMs } from "../../src/core/calendar.js";
 import type { Horizon, Model, Rule, Snapshot } from "../../src/core/types.js";
 import { DEFAULT_DAY_COUNT, daysPerTick } from "../../src/core/units.js";
 import { formatCsv, formatTable } from "../../src/outputs/table.js";
@@ -13,6 +14,7 @@ import {
   visibleSpan,
   type ChartMode,
   type Ghost,
+  type XLabel,
 } from "./chart.js";
 import { Editor } from "./editor.js";
 import { renderInspector } from "./inspector.js";
@@ -118,6 +120,21 @@ function stockColors(): Map<string, string> {
   return colors;
 }
 
+// Calendar axis: the timeline's snapshots carry the basis; ticks render as
+// civil dates instead of bare numbers (plan.md's when(t, tickUnit, basis)).
+function xLabelFor(c: BranchRec): XLabel | undefined {
+  const s0 = c.history.find((s) => s.basis !== undefined);
+  if (!s0 || s0.basis === undefined) return undefined;
+  const basis = s0.basis;
+  const conv = s0.convention ?? DEFAULT_DAY_COUNT;
+  return (t) => formatCalDate(tickToMs(t, s0.unit, basis, conv));
+}
+
+function snapDate(snap: Snapshot): string {
+  if (snap.basis === undefined) return "";
+  return ` · ${formatCalDate(tickToMs(snap.t, snap.unit, snap.basis, snap.convention ?? DEFAULT_DAY_COUNT))}`;
+}
+
 function highlightLines(): Set<number> {
   const snap = currentSnap();
   const lines = new Set<number>();
@@ -139,21 +156,23 @@ function renderView(): void {
   const c = cur();
   if (c.history.length === 0) return;
   const ghost = ghostOf();
-  const stocks = renderStocks(stocksSvg, c.history, state.playhead, state.mode, state.hidden, ghost);
-  const derived = renderDerived(derivedSvg, c.history, state.playhead, state.hidden, ghost);
+  const xLabel = xLabelFor(c);
+  const stocks = renderStocks(stocksSvg, c.history, state.playhead, state.mode, state.hidden, ghost, xLabel);
+  const derived = renderDerived(derivedSvg, c.history, state.playhead, state.hidden, ghost, xLabel);
   const diffPane = $("diff-pane");
   if (c.forkT !== undefined && diffable()) {
     diffPane.hidden = false;
-    renderLegend($("diff-legend"), renderDiff(diffSvg, trunk().history, c.history, c.forkT, state.playhead, state.hidden));
+    renderLegend($("diff-legend"), renderDiff(diffSvg, trunk().history, c.history, c.forkT, state.playhead, state.hidden, xLabel));
   } else {
     diffPane.hidden = true;
     diffSvg.innerHTML = "";
   }
   renderLegend($("stocks-legend"), stocks);
   renderLegend($("derived-legend"), derived);
+  const snap = currentSnap();
   $("playhead-label").textContent =
     `t=${state.playhead} · ${c.horizon.unit}` +
-    (currentSnap() ? ` · ${stockValues()}` : "");
+    (snap ? `${snapDate(snap)} · ${stockValues()}` : "");
   editor.setHighlights(highlightLines());
 
   if (state.tab === "inspector") {

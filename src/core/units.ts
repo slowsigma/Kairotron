@@ -133,12 +133,13 @@ export function wholeTicks(
 
 // Re-express a horizon in a different tick unit, preserving its duration.
 // The convention override lets a UI convert under a newly chosen convention;
-// otherwise the horizon keeps its own (default abstract).
+// otherwise the horizon keeps its own (default abstract). The basis anchors
+// tick 0 (a moment, not a duration), so it survives re-ticking unchanged.
 export function retickHorizon(
-  horizon: { start: number; end: number; unit: TickUnit; convention?: DayCount | undefined },
+  horizon: { start: number; end: number; unit: TickUnit; convention?: DayCount | undefined; basis?: number | undefined },
   toUnit: TickUnit,
   convention?: DayCount,
-): { start: number; end: number; unit: TickUnit; convention: DayCount } {
+): { start: number; end: number; unit: TickUnit; convention: DayCount; basis?: number | undefined } {
   const conv = convention ?? horizon.convention ?? DEFAULT_DAY_COUNT;
   if (toUnit === horizon.unit && convention === undefined) return { ...horizon, convention: conv };
   return {
@@ -146,5 +147,6 @@ export function retickHorizon(
     end: wholeTicks(convertTicks(horizon.end, horizon.unit, toUnit, conv), "horizon end", toUnit, conv),
     unit: toUnit,
     convention: conv,
+    ...(horizon.basis === undefined ? {} : { basis: horizon.basis }),
   };
 }

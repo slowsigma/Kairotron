@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { fork, run } from "../src/core/fold.js";
+import { formatCalDate, tickToMs } from "../src/core/calendar.js";
+import { date } from "../src/dsl/model.js";
 import epidemicSir from "../examples/epidemic-sir.js";
 import retirement from "../examples/retirement.js";
 import retirementBoost from "../examples/retirement-boost.js";
 import reservoir from "../examples/reservoir.js";
+import rmdCalendar from "../examples/rmd-calendar.js";
 import supplyChain from "../examples/supply-chain.js";
 
 describe("retirement exemplar", () => {
@@ -185,5 +188,41 @@ describe("derived quantities on the exemplars", () => {
         10,
       );
     }
+  });
+});
+
+describe("calendar-basis retirement exemplar (milestone 7)", () => {
+  const BIRTH = date("1975-06-15");
+  const history = run(rmdCalendar);
+
+  it("every snapshot rides on the birth-date basis", () => {
+    for (const s of history) expect(s.basis).toBe(BIRTH);
+    expect(history[0]!.derived.age).toBe(0);
+    expect(history[1000]!.derived.age).toBe(83); // 2058-10-15, born 1975-06-15
+  });
+
+  it("the fold math is unchanged by the overlay: growth + contribution matches a hand loop", () => {
+    let ira = 50000;
+    const i = 0.06 / 12; // 6%/year normalized to the monthly tick
+    for (let t = 1; t <= 12; t++) {
+      ira = ira * (1 + i) + 500;
+      expect(history[t]!.stocks.ira).toBeCloseTo(ira, 8);
+    }
+  });
+
+  it("contributions stop on the tick that lands on the 65th birthday (2040-06-15)", () => {
+    const saves = (t: number) => history[t]!.deltas.some((d) => d.rule === "contribution");
+    expect(saves(779)).toBe(true); // 2040-05-15 — still 64
+    expect(saves(780)).toBe(false); // 2040-06-15 — exactly 65
+    expect(formatCalDate(tickToMs(780, "month", BIRTH, "actual/365"))).toBe("2040-06-15");
+  });
+
+  it("RMDs start at 73: the plan.md idiom fires on 2048-06-15, at 750/month", () => {
+    const first = history.find((s) => s.deltas.some((d) => d.rule === "required minimum distribution"));
+    expect(first!.t).toBe(876); // (2048-1975)×12
+    expect(formatCalDate(tickToMs(first!.t, "month", BIRTH, "actual/365"))).toBe("2048-06-15");
+    const d = first!.deltas.find((x) => x.rule === "required minimum distribution")!;
+    expect(d.amount).toBeCloseTo(750, 10);
+    expect(history[875]!.deltas.some((x) => x.rule === "required minimum distribution")).toBe(false);
   });
 });

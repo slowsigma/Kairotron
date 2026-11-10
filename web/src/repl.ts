@@ -2,6 +2,7 @@ import type { DayCount, Horizon, Model, SourceLocation, TickUnit } from "../../s
 import { DEFAULT_DAY_COUNT, isDayCount, isTickUnit, retickHorizon } from "../../src/core/units.js";
 import {
   between,
+  date,
   derived,
   every,
   flow,
@@ -16,7 +17,7 @@ import {
   when,
 } from "../../src/dsl/model.js";
 
-const DSL = { model, flow, transfer, rate, pct, when, unless, every, once, between, lagged, laggedDelta, derived };
+const DSL = { model, flow, transfer, rate, pct, when, unless, every, once, between, lagged, laggedDelta, derived, date };
 
 // The REPL evaluates model code with new Function (Strudel's eval trick). V8
 // wraps the body in a synthetic `function anonymous(...)` whose prologue shifts
@@ -81,10 +82,12 @@ export function horizonOverride(
   }
   const u = (unit === "" ? base.unit : unit) as TickUnit;
   const conv = convention === "" ? base.convention : (convention as DayCount);
+  // The basis anchors tick 0, so it survives both paths: retickHorizon keeps
+  // it, and raw explicit bounds still measure ticks from the same anchor.
   const horizon: Horizon =
     u !== base.unit && sAuto && eAuto
       ? retickHorizon({ ...base }, u, conv)
-      : { start: s, end: e, unit: u, convention: conv };
+      : { start: s, end: e, unit: u, convention: conv, basis: base.basis };
   if (!(horizon.end > horizon.start)) {
     throw new Error(`horizon end (${horizon.end}) must exceed start (${horizon.start})`);
   }
@@ -92,6 +95,7 @@ export function horizonOverride(
     horizon.start === base.start &&
     horizon.end === base.end &&
     horizon.unit === base.unit &&
-    (horizon.convention ?? DEFAULT_DAY_COUNT) === (base.convention ?? DEFAULT_DAY_COUNT);
+    (horizon.convention ?? DEFAULT_DAY_COUNT) === (base.convention ?? DEFAULT_DAY_COUNT) &&
+    (horizon.basis ?? undefined) === (base.basis ?? undefined);
   return unchanged ? undefined : horizon;
 }

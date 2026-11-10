@@ -1,5 +1,6 @@
 import type {
   Branch,
+  CalendarDate,
   ConstValue,
   DayCount,
   Delta,
@@ -15,6 +16,7 @@ import type {
   TickContext,
   TickUnit,
 } from "./types.js";
+import { MS_PER_DAY, whenDate } from "./calendar.js";
 import { DEFAULT_DAY_COUNT, daysPerTick, nearestWholeTick, normalizeRate, ticksPerInterval, wholeTicks } from "./units.js";
 
 function isRate(v: ConstValue): v is Rate {
@@ -107,33 +109,53 @@ export function fork(
   const trunkUnit = trunk[0]!.unit;
   const branchUnit = horizon.unit;
   const crossUnit = branchUnit !== trunkUnit;
+  // A branch that omits a basis inherits the trunk's so the shared prefix and
+  // the new ticks display the same calendar. The basis anchors tick 0, and the
+  // branch's tick 0 is not necessarily the trunk's tick 0 (different unit
+  // and/or start), so the anchor shifts by the duration between those two
+  // tick-zero moments.
+  const trunkBasis = trunk[0]!.basis;
+  const trunkConv = trunk[0]!.convention ?? DEFAULT_DAY_COUNT;
+  const effHorizon: Horizon =
+    horizon.basis !== undefined || trunkBasis === undefined
+      ? horizon
+      : {
+          ...horizon,
+          ...(horizon.convention === undefined ? { convention: trunkConv } : {}),
+          basis:
+            trunkBasis +
+            (trunk[0]!.t * daysPerTick(trunkUnit, trunkConv) -
+              horizon.start *
+                daysPerTick(branchUnit, horizon.convention ?? trunkConv)) *
+              MS_PER_DAY,
+        };
   if (!crossUnit) {
-    if (atT < horizon.start) {
-      throw new Error(`fork point t=${atT} is before the branch horizon start (${horizon.start})`);
+    if (atT < effHorizon.start) {
+      throw new Error(`fork point t=${atT} is before the branch horizon start (${effHorizon.start})`);
     }
-    if (atT >= horizon.end) {
+    if (atT >= effHorizon.end) {
       throw new Error(
-        `fork point t=${atT} must be before the branch horizon end (${horizon.end}) — nothing left to run`,
+        `fork point t=${atT} must be before the branch horizon end (${effHorizon.end}) — nothing left to run`,
       );
     }
   }
   const prefix = crossUnit
-    ? remapPrefix(trunk.slice(0, idx + 1), horizon)
+    ? remapPrefix(trunk.slice(0, idx + 1), effHorizon)
     : trunk.slice(0, idx + 1);
   if (crossUnit) {
     const forkT = prefix[prefix.length - 1]!.t;
-    if (forkT >= horizon.end) {
+    if (forkT >= effHorizon.end) {
       throw new Error(
-        `fork point t=${atT} maps to ${forkT} '${branchUnit}' ticks, at or past the branch horizon end (${horizon.end}) — nothing left to run`,
+        `fork point t=${atT} maps to ${forkT} '${branchUnit}' ticks, at or past the branch horizon end (${effHorizon.end}) — nothing left to run`,
       );
     }
   }
-  const snapshots = fold(model, horizon, { prefix, stocks: spec.stocks });
+  const snapshots = fold(model, effHorizon, { prefix, stocks: spec.stocks });
   return Object.freeze({
     label: spec.label ?? "branch",
     forkT: atT,
     forkTBranch: prefix[prefix.length - 1]!.t,
-    horizon,
+    horizon: effHorizon,
     snapshots,
   });
 }
@@ -169,6 +191,7 @@ function remapPrefix(prefix: readonly Snapshot[], horizon: Horizon): readonly Sn
       t: tick,
       unit: branchUnit,
       convention: conv,
+      ...(horizon.basis === undefined ? {} : { basis: horizon.basis }),
       stocks: s.stocks,
       derived: s.derived,
       deltas: s.deltas,
@@ -196,6 +219,11 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
   if (end < start) {
     throw new Error(`horizon end (${end}) must be >= start (${start})`);
   }
+  if (horizon.basis !== undefined && convention === DEFAULT_DAY_COUNT) {
+    throw new Error(
+      `horizon declares a calendar basis but runs under the 'abstract' convention, which has no civil calendar — choose "actual/365" or "30/360"`,
+    );
+  }
 
   const plainConstants: Record<string, number> = {};
   const rateConstants: Record<string, Rate> = {};
@@ -215,6 +243,17 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
     const rate = rateConstants[name];
     if (!rate) throw new Error(`no rate constant named '${name}'`);
     return normalizeRate(rate.value, rate.perUnit, horizon.unit, convention);
+  };
+
+  // The calendar overlay read-side: a bound when(t, tickUnit, basis) for the
+  // fold's horizon. Absent a basis, touching dates is a clear user error.
+  const dateAt = (t: number, from: string): CalendarDate => {
+    if (horizon.basis === undefined) {
+      throw new Error(
+        `${from}: this model has no calendar basis — declare horizon.basis = date("YYYY-MM-DD") to read dates`,
+      );
+    }
+    return whenDate(t, horizon.unit, horizon.basis, convention);
   };
 
   // Read-only projections (plan.md): pure in (stocks, constants, t) plus
@@ -247,6 +286,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
         horizon,
         tickUnit: horizon.unit,
         perTick: perTickFn,
+        date: (query?: number) => dateAt(query ?? t, `derived '${def.name}'`),
       });
       const value = def.expr(ctx);
       if (!Number.isFinite(value)) {
@@ -281,6 +321,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
       t,
       unit: horizon.unit,
       convention,
+      ...(horizon.basis === undefined ? {} : { basis: horizon.basis }),
       stocks: Object.freeze({ ...values }),
       derived: Object.freeze({ ...derived }),
       deltas: Object.freeze(deltas.map((d) => Object.freeze({ ...d }))),
@@ -327,6 +368,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
         horizon,
         tickUnit: horizon.unit,
         perTick: perTickFn,
+        date: (query?: number) => dateAt(query ?? t, `rule at t=${t}`),
         lag(stock: string, ticks: number): number {
           if (!Number.isInteger(ticks) || ticks < 1) {
             throw new Error(`lag requires a whole number of ticks >= 1 (got ${ticks})`);

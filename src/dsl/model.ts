@@ -1,4 +1,6 @@
 import type {
+  CalendarDate,
+  DayCount,
   DerivedContext,
   DerivedDef,
   FlowRule,
@@ -14,6 +16,7 @@ import type {
   TickUnit,
   TransferRule,
 } from "../core/types.js";
+import { isCalendarConvention, parseDate, whenDate } from "../core/calendar.js";
 import { DAY_COUNTS, TICK_UNITS, isDayCount, isTickUnit } from "../core/units.js";
 
 type Amount = number | ((ctx: TickContext) => number);
@@ -59,6 +62,18 @@ export function model(spec: ModelSpec): Model {
     throw new Error(
       `unknown day-count convention '${horizon.convention}' (expected one of: ${DAY_COUNTS.join(", ")})`,
     );
+  }
+  if (horizon.basis !== undefined) {
+    if (!Number.isFinite(horizon.basis)) {
+      throw new Error(
+        `horizon.basis must be a finite timestamp — build it with date("YYYY-MM-DD") (got ${horizon.basis})`,
+      );
+    }
+    if (horizon.convention === undefined || !isCalendarConvention(horizon.convention)) {
+      throw new Error(
+        `a horizon with a calendar basis needs a calendar convention: set convention to "actual/365" or "30/360" (the "abstract" default has no civil calendar)`,
+      );
+    }
   }
   for (const [name, value] of Object.entries(spec.stocks)) {
     if (!Number.isFinite(value)) throw new Error(`stock '${name}' initial value must be finite (got ${value})`);
@@ -145,9 +160,42 @@ export function pct(percent: number, perUnit: TickUnit): Rate {
   return rate(percent / 100, perUnit);
 }
 
-export function when(cond: Guard, rule: Rule): GuardedRule {
+// `when` does double duty, by shape (plan.md §Core semantics):
+// - when(guard, rule)   — gating (milestone 2)
+// - when(t, unit, basis) — the calendar overlay (milestone 7): a tick rendered
+//   as a read-only CalendarDate for date gating/display. `basis` is a
+//   date("...") timestamp (typically horizon.basis); `convention` is the
+//   model's day count (default "actual/365" — a basis without a declared
+//   convention means the civil calendar).
+export function when(cond: Guard, rule: Rule): GuardedRule;
+export function when(t: number, unit: TickUnit, basis: number, convention?: DayCount): CalendarDate;
+export function when(
+  a: Guard | number,
+  b: Rule | TickUnit,
+  basis?: number,
+  convention?: DayCount,
+): GuardedRule | CalendarDate {
+  if (typeof a === "number") {
+    if (typeof b !== "string" || !isTickUnit(b)) {
+      throw new Error(
+        `when(t, unit, basis): unknown tick unit '${String(b)}' (expected one of: ${TICK_UNITS.join(", ")})`,
+      );
+    }
+    if (convention !== undefined && !isDayCount(convention)) {
+      throw new Error(
+        `when(): unknown day-count convention '${convention}' (expected one of: ${DAY_COUNTS.join(", ")})`,
+      );
+    }
+    return whenDate(a, b, basis as number, convention);
+  }
   const loc = captureLoc(1);
-  return { kind: "when", guard: cond, rule, ...(loc && { loc }) };
+  return { kind: "when", guard: a, rule: b as Rule, ...(loc && { loc }) };
+}
+
+// The basis constructor: a UTC civil timestamp for horizon.basis (tick 0's
+// moment). Pure display overlay — engine semantics stay tick-pure.
+export function date(input: string): number {
+  return parseDate(input);
 }
 
 export function unless(cond: Guard, rule: Rule): GuardedRule {

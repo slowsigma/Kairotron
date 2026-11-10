@@ -11,8 +11,9 @@ export type TickUnit =
 // Day-count convention: how month/quarter/year map onto days when rates,
 // schedules, and horizons are re-normalized across tick units. "abstract" is
 // the calendar-free default (a 364-day year = exactly 52 weeks); the others
-// are the declared finance conventions. Leap-year-true actual/actual needs a
-// calendar basis and arrives with the milestone-7 overlay.
+// are the declared finance conventions. With a calendar basis, tick→date
+// conversion for month/quarter/year steps the civil calendar directly
+// (leap-year-true actual/actual; 30/360 clamps the day to 30).
 export type DayCount = "abstract" | "actual/365" | "30/360";
 
 export interface Horizon {
@@ -20,6 +21,24 @@ export interface Horizon {
   readonly end: number;
   readonly unit: TickUnit;
   readonly convention?: DayCount | undefined;
+  // The calendar basis: the civil moment (epoch ms, UTC) of tick 0, built
+  // with date("YYYY-MM-DD"). A pure display/gating overlay — the fold stays
+  // tick-pure; only when(...), labels, and validation read it. Requires a
+  // calendar convention ("actual/365" or "30/360"), never "abstract".
+  readonly basis?: number | undefined;
+}
+
+// A tick rendered in calendar terms — what when(t, tickUnit, basis) returns.
+// Read-only by construction: a derived-style projection of time, never state.
+export interface CalendarDate {
+  readonly year: number;
+  readonly month: number; // 1-12
+  readonly day: number;
+  readonly hours: number;
+  readonly minutes: number;
+  readonly seconds: number;
+  readonly iso: string;
+  readonly ms: number; // epoch ms, UTC
 }
 
 export interface Rate {
@@ -50,6 +69,7 @@ export interface Snapshot {
   readonly t: number;
   readonly unit: TickUnit;
   readonly convention?: DayCount | undefined;
+  readonly basis?: number | undefined;
   readonly stocks: StockMap;
   readonly derived: StockMap;
   readonly deltas: readonly Delta[];
@@ -63,6 +83,9 @@ export interface TickContext {
   readonly tickUnit: TickUnit;
   perTick(name: string): number;
   lag(stock: string, ticks: number): number;
+  // The basis overlay: this tick (or any whole tick) as a calendar date.
+  // Throws when the model declares no basis.
+  date(t?: number): CalendarDate;
 }
 
 export interface DerivedContext {
@@ -73,6 +96,7 @@ export interface DerivedContext {
   readonly horizon: Horizon;
   readonly tickUnit: TickUnit;
   perTick(name: string): number;
+  date(t?: number): CalendarDate;
 }
 
 export interface DerivedDef {
