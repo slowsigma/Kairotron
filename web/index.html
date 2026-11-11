@@ -47,10 +47,25 @@
         </select>
       </label>
       <span class="spacer"></span>
+      <label title="Saved scenario sets (localStorage)">scenario
+        <select id="scenario">
+          <option value="">— saved —</option>
+        </select>
+      </label>
+      <button id="scen-save" title="Save the model and horizon/MC controls into a scenario set">&#128190; Save</button>
+      <button id="scen-del" title="Delete the selected scenario">&#10005;</button>
+      <button id="share" title="Copy a URL that reproduces the model, horizon, Monte Carlo inputs, playhead, and branches">Share</button>
       <button id="exp-csv" title="Download CSV">CSV</button>
       <button id="exp-json" title="Download JSON">JSON</button>
       <span id="status"></span>
     </header>
+    <div id="save-pane" hidden>
+      <span>save scenario</span>
+      <label>set <input id="save-set" size="12" placeholder="default" /></label>
+      <label>name <input id="save-name" size="14" /></label>
+      <button id="save-ok">Save</button>
+      <button id="save-cancel">Cancel</button>
+    </div>
     <div id="branchbar" hidden></div>
     <main>
       <section id="editor-pane"><div id="editor"></div></section>

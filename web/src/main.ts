@@ -31,6 +31,23 @@ import { renderInspector, renderPercentileInspector } from "./inspector.js";
 import { runPathsPool } from "./mc-pool.js";
 import { compileModel, horizonOverride, userLine, type Compiled } from "./repl.js";
 import { SAMPLE } from "./sample.js";
+import {
+  buildShareUrl,
+  decodeShareParam,
+  encodeShareParam,
+  readShareParam,
+  type SharePayload,
+} from "./share.js";
+import {
+  loadSets,
+  parseRef,
+  removeScenario,
+  upsertScenario,
+  writeSets,
+  type ScenarioPayload,
+  type ScenarioSet,
+  type StorageLike,
+} from "./scenarios.js";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -344,7 +361,9 @@ function mcInputs(): { paths: number; seed: number } {
   return { paths, seed };
 }
 
-async function runNow(): Promise<void> {
+// Resolves true on a successful fold, false when the error path took it —
+// callers that chain runs (shared-branch replay) need the verdict.
+async function runNow(): Promise<boolean> {
   const code = editor.text;
   try {
     const compiled = compileModel(code);
@@ -457,8 +476,10 @@ async function runNow(): Promise<void> {
     tabBody.innerHTML = "";
     setStatus(status);
     setPlayhead(state.playhead);
+    return true;
   } catch (e) {
     setStatus(e instanceof Error ? e.message : String(e), true);
+    return false;
   }
 }
 
@@ -592,7 +613,256 @@ function download(name: string, text: string, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
+// ---- Shareable model URLs (plan.md's "later") ------------------------------
+// The URL carries the trunk's *last-run* code (what the timeline actually is),
+// the raw horizon/mc control values, the playhead, and each branch's fork tick
+// plus buffer. Branches are shared as forks, not histories: the link replays
+// them on load, exactly like re-forking after a trunk edit.
+
+function rawVal(id: string): string {
+  return ($(id) as unknown as HTMLInputElement).value.trim();
+}
+
+// The shareable/saveable core: trunk code + the raw horizon/mc control values.
+// Un-run edits on the trunk are worth keeping; on a branch the buffer is the
+// last-run one, since both consumers rebuild from runs.
+function collectScenario(): ScenarioPayload {
+  const horizon: NonNullable<SharePayload["horizon"]> = {};
+  for (const [k, id] of [
+    ["start", "h-start"],
+    ["end", "h-end"],
+    ["unit", "h-unit"],
+    ["convention", "h-convention"],
+  ] as const) {
+    const v = rawVal(id);
+    if (v) horizon[k] = v;
+  }
+  const mc: NonNullable<SharePayload["mc"]> = {};
+  const paths = rawVal("mc-paths");
+  const seed = rawVal("mc-seed");
+  if (paths) mc.paths = paths;
+  if (seed) mc.seed = seed;
+  const out: ScenarioPayload = { code: state.active === 0 ? editor.text : trunk().code };
+  if (Object.keys(horizon).length) out.horizon = horizon;
+  if (Object.keys(mc).length) out.mc = mc;
+  return out;
+}
+
+function collectShare(): SharePayload {
+  const share: SharePayload = { ...collectScenario(), playhead: state.playhead };
+  // Branches are shared as forks, not histories: the link replays them on
+  // load, exactly like re-forking after a trunk edit.
+  const branches = state.branches
+    .slice(1)
+    .flatMap((b) => (b.forkT === undefined ? [] : [{ forkT: b.forkT, code: b.code }]));
+  if (branches.length) share.branches = branches;
+  return share;
+}
+
+async function shareNow(): Promise<void> {
+  try {
+    const url = buildShareUrl(window.location.href, await encodeShareParam(collectShare()));
+    window.history.replaceState(null, "", url);
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        copied = true;
+      }
+    } catch {
+      copied = false; // insecure context / permission — the address bar still holds the link
+    }
+    setStatus(
+      copied
+        ? `share URL copied to clipboard (${url.length} chars)`
+        : `share URL set in the address bar (${url.length} chars)`,
+    );
+  } catch (e) {
+    setStatus(e instanceof Error ? e.message : String(e), true);
+  }
+}
+
+// Adopt a shared payload or a saved scenario: buffer, control values, playhead.
+function applySession(p: SharePayload): void {
+  editor.text = p.code;
+  trunk().code = p.code;
+  const set = (id: string, v: string | undefined): void => {
+    ($(id) as unknown as HTMLInputElement).value = v ?? "";
+  };
+  set("h-start", p.horizon?.start);
+  set("h-end", p.horizon?.end);
+  set("h-unit", p.horizon?.unit);
+  set("h-convention", p.horizon?.convention);
+  set("mc-paths", p.mc?.paths);
+  set("mc-seed", p.mc?.seed);
+  state.playhead = p.playhead ?? 0;
+}
+
+// Fork + run each shared branch against the freshly folded trunk. A branch
+// whose fork tick fell out of the horizon is skipped; one whose code fails
+// keeps its chip with the shared prefix and counts as failed.
+async function replaySharedBranches(p: SharePayload): Promise<{ loaded: number; failed: number }> {
+  let loaded = 0;
+  let failed = 0;
+  for (const b of p.branches ?? []) {
+    const th = trunk();
+    const idx = th.history.findIndex((s) => s.t === b.forkT);
+    if (idx === -1) continue;
+    const id = nextBranchId++;
+    state.branches.push({
+      id,
+      label: `b${id}`,
+      forkT: b.forkT,
+      code: b.code,
+      history: th.history.slice(0, idx + 1),
+      horizon: th.horizon,
+      ruleLines: new Map(),
+    });
+    state.active = state.branches.length - 1;
+    tabBody.innerHTML = "";
+    renderBranchBar();
+    editor.text = b.code;
+    // A fork at the trunk's final tick legitimately folds zero new snapshots,
+    // so trust runNow's verdict, not the history length.
+    if (await runNow()) loaded++;
+    else failed++; // error status is left up; the chip keeps the shared prefix
+  }
+  if (p.branches?.length) activate(0);
+  return { loaded, failed };
+}
+
+async function bootstrap(): Promise<void> {
+  let shared: SharePayload | undefined;
+  let badLink: string | undefined;
+  const param = readShareParam(window.location.href);
+  if (param !== undefined) {
+    try {
+      shared = await decodeShareParam(param);
+    } catch (e) {
+      badLink = e instanceof Error ? e.message : String(e);
+    }
+  }
+  if (shared) applySession(shared);
+  await runNow();
+  // runNow's status is a fold summary; the link's own verdict must survive it.
+  if (badLink !== undefined) setStatus(`bad share link: ${badLink} — started from the sample`, true);
+  if (!shared) return;
+  const { loaded, failed } = await replaySharedBranches(shared);
+  const note = loaded ? ` · ${loaded} branch${loaded === 1 ? "" : "es"}` : "";
+  setStatus(`shared model loaded${note}${failed ? ` · ${failed} branch${failed === 1 ? "" : "es"} failed` : ""}`, failed > 0);
+}
+
+// ---- Saved scenario sets (plan.md's "later") --------------------------------
+// Named model variants (code + horizon/MC controls) grouped into sets, kept in
+// localStorage. Loading a scenario is an apply + run — the trunk-edit re-fork
+// machinery in runNow then keeps or drops existing branches as usual.
+
+// localStorage throws on mere access when storage is blocked (some private
+// modes, cookies disabled); without it the store is simply empty.
+function scenarioStore(): StorageLike | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+let scenarioSets: ScenarioSet[] = loadSets(scenarioStore());
+let lastSaveSet = "default";
+
+const scenarioSelect = (): HTMLSelectElement => $("scenario") as unknown as HTMLSelectElement;
+
+function renderScenarioSelect(select?: string): void {
+  const sel = scenarioSelect();
+  sel.innerHTML =
+    `<option value="">— saved —</option>` +
+    scenarioSets
+      .map(
+        (s, si) =>
+          `<optgroup label="${escapeHtml(s.name)}">` +
+          s.scenarios
+            .map((sc, ci) => `<option value="${si}:${ci}">${escapeHtml(sc.name)}</option>`)
+            .join("") +
+          `</optgroup>`,
+      )
+      .join("");
+  if (select !== undefined) sel.value = select;
+}
+
+async function loadScenario(): Promise<void> {
+  const ref = scenarioSelect().value;
+  if (!ref) return;
+  const [si, ci] = parseRef(ref);
+  const set = scenarioSets[si];
+  const scen = set?.scenarios[ci];
+  if (!set || !scen) return;
+  applySession(scen.payload);
+  await runNow();
+  setStatus(`loaded ${set.name} · ${scen.name}`);
+}
+
+function openSavePane(): void {
+  $("save-pane").hidden = false;
+  ($("save-set") as unknown as HTMLInputElement).value = lastSaveSet;
+  const total = scenarioSets.reduce((n, s) => n + s.scenarios.length, 0);
+  const name = $("save-name") as unknown as HTMLInputElement;
+  name.value = `scenario ${total + 1}`;
+  name.focus();
+}
+
+async function commitSave(): Promise<void> {
+  const setName = (($("save-set") as unknown as HTMLInputElement).value.trim() || "default");
+  const name = (($("save-name") as unknown as HTMLInputElement).value.trim());
+  if (!name) {
+    setStatus("scenario name is required", true);
+    return;
+  }
+  try {
+    const r = upsertScenario(scenarioSets, setName, name, collectScenario());
+    writeSets(scenarioStore(), r.sets); // quota/security errors land here
+    scenarioSets = r.sets;
+    lastSaveSet = setName;
+    renderScenarioSelect(r.ref);
+    $("save-pane").hidden = true;
+    setStatus(`saved ${setName} · ${name}`);
+  } catch (e) {
+    setStatus(`save failed: ${e instanceof Error ? e.message : String(e)}`, true);
+  }
+}
+
+function deleteScenario(): void {
+  const ref = scenarioSelect().value;
+  if (!ref) {
+    setStatus("select a saved scenario to delete", true);
+    return;
+  }
+  const r = removeScenario(scenarioSets, ref);
+  try {
+    writeSets(scenarioStore(), r.sets);
+  } catch (e) {
+    setStatus(`delete failed: ${e instanceof Error ? e.message : String(e)}`, true);
+    return;
+  }
+  scenarioSets = r.sets;
+  renderScenarioSelect();
+  setStatus(`deleted ${r.removed ?? "scenario"}`);
+}
+
 $("run").addEventListener("click", runNow);
+$("share").addEventListener("click", () => void shareNow());
+scenarioSelect().addEventListener("change", () => void loadScenario());
+$("scen-save").addEventListener("click", openSavePane);
+$("save-ok").addEventListener("click", () => void commitSave());
+for (const id of ["save-set", "save-name"] as const) {
+  ($(id) as unknown as HTMLInputElement).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") void commitSave();
+  });
+}
+$("save-cancel").addEventListener("click", () => {
+  $("save-pane").hidden = true;
+});
+$("scen-del").addEventListener("click", deleteScenario);
+renderScenarioSelect();
 $("fork").addEventListener("click", forkHere);
 editor.onRun(runNow);
 
@@ -693,4 +963,4 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") setPlayhead(state.playhead + 1);
 });
 
-runNow();
+void bootstrap();

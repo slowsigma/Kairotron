@@ -36,6 +36,9 @@ header {
 .brand { font-weight: 700; letter-spacing: 0.04em; color: var(--accent); }
 .spacer { flex: 1; }
 
+/* id-level display rules below would outrank the UA's [hidden] default */
+[hidden] { display: none !important; }
+
 header label { color: var(--dim); display: inline-flex; align-items: center; gap: 4px; }
 
 input, select, button {
@@ -55,6 +58,18 @@ button:hover { border-color: var(--accent); }
 #status.err { color: var(--error); }
 
 #fork { color: #c39bf5; }
+#save-pane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--dim);
+}
+#save-pane input { font-family: var(--mono); }
+#save-ok { border-color: var(--accent); color: var(--accent); }
 #branchbar {
   display: flex;
   align-items: center;

@@ -92,3 +92,17 @@ Companion research: `docs/Concept-Search.md` (domain math),
   `npm run dev` serves it, `npm run build` bundles it, UI wiring is smoke-tested
   under jsdom (`test/ui-smoke.test.ts`, Monte Carlo in `test/ui-mc.test.ts`;
   the pool protocol is covered by `test/mc-pool.test.ts` with a stubbed Worker).
+  Shareable model URLs (plan.md's "later") live in `web/src/share.ts`: the
+  session (trunk code + horizon/MC control values + playhead + each branch's
+  fork tick and buffer) JSON-encodes to one `?m=` query parameter,
+  deflate-raw + base64url with an uncompressed (`j`-prefixed) fallback where
+  `CompressionStream` is absent; branches ride as forks and replay on load.
+  `runNow()` resolves a success boolean so the replay can count failures.
+  Codec tested in `test/share.test.ts`, end-to-end in `test/ui-share.test.ts`.
+  Saved scenario sets (also plan.md's "later") live in `web/src/scenarios.ts`:
+  scenarios (model code + horizon/MC control values — the session minus
+  playhead/branches, validated through the share codec) grouped into named
+  sets in `localStorage` (`kairotron.scenarios.v1`, injected as a `StorageLike`
+  so the module tests need no DOM); the toolbar dropdown loads a scenario via
+  apply + re-run. Pure store in `test/scenarios.test.ts`, UI flow in
+  `test/ui-scenarios.test.ts`.

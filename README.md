@@ -243,6 +243,19 @@ report the tick's distribution instead of a point. Fork a branch with paths on
 and each branch path continues its trunk path's shocks — a same-world what-if.
 Leave the field empty and everything is the deterministic expected-value run.
 
+**Share** puts the session in the URL: the trunk's model code, the horizon and
+Monte Carlo controls, the playhead, and each branch's fork tick and buffer —
+deflate-compressed into one query parameter (with an uncompressed fallback), no
+server involved. Opening the link folds the trunk, re-forks the branches, and
+lands the playhead where you left it.
+
+**💾 Save** keeps scenario sets in `localStorage`: named model variants (code +
+horizon/MC controls) grouped into sets — *retirement / aggressive, cautious, …*
+— the spreadsheet-tabs notion of scenario without leaving the REPL. The
+**scenario** dropdown loads one back (buffer, controls, immediate re-run);
+**✕** deletes it. Branches stay a share-URL notion: inside a set, what-ifs are
+separate scenarios, not forks stacked on a trunk.
+
 Zero runtime dependencies: the engine imports unchanged from `src/`, the UI is
 vanilla TypeScript over SVG.
 
@@ -253,7 +266,7 @@ src/
   core/     fold runner, units, seeded PRNG, immutable snapshot types (pure, no UI)
   dsl/      model({...}) builder + rule constructors + provenance capture
   outputs/  table / CSV / flows / percentile renderers
-web/        browser REPL (Vite, vanilla TS — editor, chart, scrubber, inspector, MC worker pool)
+web/        browser REPL (Vite, vanilla TS — editor, chart, scrubber, inspector, MC worker pool, share URLs, scenario sets)
 examples/   exemplar models across four domains
 test/       units, fold, gating, derived, exemplars, Monte Carlo, REPL, UI smoke tests
 docs/       plan.md (the plan), Concept-Search.md, time-varying-values.md
@@ -271,6 +284,8 @@ Milestones from [`docs/plan.md`](docs/plan.md):
 - [x] Tick re-normalization — same model, new tick unit; day-count conventions
 - [x] Calendar overlay — basis + `date()`, civil date gating/display (`when(...)`, `c.date()`), date column & calendar axes
 - [x] Monte Carlo mode — random rate sequences (`stochastic`/`normal`/`uniform`), seeded paths on a worker pool, percentile bands over the timeline
+- [x] Shareable model URLs (plan.md's "later") — session (model + horizon + MC + playhead + branches) in a compressed query parameter
+- [x] Saved scenario sets (plan.md's "later") — named model variants grouped into sets in localStorage, loadable from the toolbar
 
 ## Design docs
 
