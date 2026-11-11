@@ -1,4 +1,5 @@
 import { snapAtOrBefore } from "../../src/core/fold.js";
+import type { PercentileSummary } from "../../src/outputs/table.js";
 import type { Snapshot } from "../../src/core/types.js";
 
 export type ChartMode = "stacked" | "lines";
@@ -396,6 +397,152 @@ export function renderDiff(
     const v = snap?.stocks[n];
     const bv = bsnap?.stocks[n];
     return { name: `Δ${n}`, color: colorOf(i), value: v !== undefined && bv !== undefined ? v - bv : 0 };
+  });
+}
+
+// Monte Carlo percentile bands (milestone 8): per name paint the outer
+// percentile range (first/last label, e.g. p10–p90), the inner range one
+// level in (e.g. p25–p75) when present, and the median line on top. Stocks
+// share one y-axis; derived quantities keep the plain pane's per-curve scale.
+export function renderBands(
+  svg: SVGSVGElement,
+  summary: PercentileSummary,
+  playheadT: number,
+  hidden: ReadonlySet<string>,
+  opts: {
+    kind: "stocks" | "derived";
+    h: number;
+    perSeries?: boolean | undefined;
+    title?: string | undefined;
+    forkT?: number | undefined;
+    xLabel?: XLabel | undefined;
+  },
+): LegendEntry[] {
+  const { kind, h } = opts;
+  const { rows, labels } = summary;
+  if (rows.length === 0 || labels.length === 0) {
+    svg.innerHTML = "";
+    return [];
+  }
+  const all: string[] = [];
+  for (const r of rows) {
+    for (const k of Object.keys(kind === "stocks" ? r.stocks : r.derived)) {
+      if (!all.includes(k)) all.push(k);
+    }
+  }
+  const outerLow = labels[0]!;
+  const outerHigh = labels[labels.length - 1]!;
+  const innerLow = labels.length >= 3 ? labels[1]! : undefined;
+  const innerHigh = labels.length >= 3 ? labels[labels.length - 2]! : undefined;
+  const medLabel = labels.includes("p50") ? "p50" : labels[Math.floor(labels.length / 2)]!;
+  const t0 = rows[0]!.t;
+  const tN = rows[rows.length - 1]!.t;
+
+  const seriesOf = (name: string) => {
+    const t: number[] = [];
+    const low: number[] = [];
+    const high: number[] = [];
+    const iLow: number[] = [];
+    const iHigh: number[] = [];
+    const med: number[] = [];
+    for (const r of rows) {
+      const s = (kind === "stocks" ? r.stocks : r.derived)[name];
+      if (!s || !(outerLow in s) || !(outerHigh in s)) continue;
+      t.push(r.t);
+      low.push(s[outerLow]!);
+      high.push(s[outerHigh]!);
+      if (innerLow !== undefined && innerHigh !== undefined && innerLow in s && innerHigh in s) {
+        iLow.push(s[innerLow]!);
+        iHigh.push(s[innerHigh]!);
+      }
+      const m = s[medLabel];
+      if (m !== undefined) med.push(m);
+    }
+    return { t, low, high, iLow, iHigh, med };
+  };
+
+  const visible = all.filter((n) => !hidden.has(n));
+  const series = visible.map((n) => ({ name: n, s: seriesOf(n) }));
+
+  const bandPath = (
+    t: readonly number[],
+    top: readonly number[],
+    bottom: readonly number[],
+    color: string,
+    opacity: number,
+    yOf: (v: number) => number,
+  ): string => {
+    if (t.length < 2) return "";
+    const up = top.map((v, i) => `${xFor(t[i]!, t0, tN)},${yOf(v)}`);
+    const down = bottom.map((v, i) => `${xFor(t[i]!, t0, tN)},${yOf(v)}`).reverse();
+    return `<path fill="${color}" fill-opacity="${opacity}" stroke="none" d="M${up.join("L")}L${down.join("L")}Z"/>`;
+  };
+  const medianPath = (
+    t: readonly number[],
+    med: readonly number[],
+    color: string,
+    yOf: (v: number) => number,
+  ): string => {
+    if (med.length < 2) return "";
+    // Median points are a subset of the tick series; pair them by value
+    // order — every present percentile is present here, so t and med line up.
+    const pts = med.map((v, i) => `${xFor(t[Math.min(i, t.length - 1)]!, t0, tN)},${yOf(v)}`).join("L");
+    return `<polyline fill="none" stroke="${color}" stroke-width="1.8" points="${pts}"/>`;
+  };
+
+  const parts: string[] = [];
+  if (!opts.perSeries) {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const { s } of series) {
+      for (const v of s.low) if (v < min) min = v;
+      for (const v of s.high) if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      min = 0;
+      max = 1;
+    } else if (min === max) max = min + 1;
+    const yOf = (v: number) => PT + (1 - (v - min) / (max - min)) * (h - PT - PB);
+    parts.push(grid(h, yOf, min, max, t0, tN, opts.xLabel));
+    for (const { name, s } of series) {
+      const color = colorOf(all.indexOf(name));
+      parts.push(bandPath(s.t, s.high, s.low, color, 0.15, yOf));
+      if (s.iLow.length >= 2) parts.push(bandPath(s.t, s.iHigh, s.iLow, color, 0.25, yOf));
+      parts.push(medianPath(s.t, s.med, color, yOf));
+    }
+  } else {
+    for (const { name, s } of series) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const v of s.low) if (v < min) min = v;
+      for (const v of s.high) if (v > max) max = v;
+      if (!Number.isFinite(min) || !Number.isFinite(max)) continue;
+      if (min === max) max = min + 1;
+      // Per-curve scale, same +4 inset as the plain derived pane.
+      const yOf = (v: number) => PT + (1 - (v - min) / (max - min)) * (h - PT - PB) + 4;
+      const color = colorOf(all.indexOf(name));
+      parts.push(bandPath(s.t, s.high, s.low, color, 0.15, yOf));
+      if (s.iLow.length >= 2) parts.push(bandPath(s.t, s.iHigh, s.iLow, color, 0.25, yOf));
+      parts.push(medianPath(s.t, s.med, color, yOf));
+    }
+    const rx = W - PR - (opts.xLabel ? 66 : 20);
+    parts.push(
+      `<line class="grid" x1="${PL}" y1="${PT}" x2="${W - PR}" y2="${PT}"/>` +
+        `<text x="4" y="${PT + 8}">${opts.title ?? "mc ~"}</text>` +
+        `<text x="${rx}" y="${h - 6}">${opts.xLabel ? opts.xLabel(tN) : tN}</text>` +
+        `<text x="${PL}" y="${h - 6}">${opts.xLabel ? opts.xLabel(t0) : t0}</text>`,
+    );
+  }
+  svg.innerHTML = parts.join("") + playheadMarkup(playheadT, t0, tN, h, opts.forkT);
+
+  let row = rows[0]!;
+  for (const r of rows) {
+    if (r.t <= playheadT) row = r;
+    else break;
+  }
+  return all.map((n, i) => {
+    const s = (kind === "stocks" ? row.stocks : row.derived)[n];
+    return { name: kind === "derived" ? `~${n}` : n, color: colorOf(i), value: s?.[medLabel] ?? 0 };
   });
 }
 

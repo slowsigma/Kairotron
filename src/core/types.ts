@@ -1,3 +1,5 @@
+import type { Rng } from "./random.js";
+
 export type TickUnit =
   | "second"
   | "minute"
@@ -28,7 +30,7 @@ export interface Horizon {
   readonly basis?: number | undefined;
 }
 
-// A tick rendered in calendar terms — what when(t, tickUnit, basis) returns.
+// A tick rendered in calendar terms — what c.when(t) / when(t, tickUnit, basis, convention) returns.
 // Read-only by construction: a derived-style projection of time, never state.
 export interface CalendarDate {
   readonly year: number;
@@ -47,7 +49,26 @@ export interface Rate {
   readonly perUnit: TickUnit;
 }
 
-export type ConstValue = number | Rate;
+// Monte Carlo overlay (milestone 8): a rate constant carrying a random
+// sequence. "normal" is additive noise around the base rate with the given
+// per-unit volatility, scaled per tick by sqrt(tick/perUnit) so the noise's
+// variance accrues over time (units stay semantics: finer ticks do not
+// change the spread of an outcome). "uniform" is an i.i.d. per-tick draw in a
+// per-unit band: its midpoint is the expected rate and its half-width scales
+// by the same sqrt-time factor, so uniform spread is also tick-invariant. A
+// deterministic run (no seed) reads the expected value: the base rate, or the
+// midpoint for a uniform.
+export type DistSpec =
+  | { readonly kind: "normal"; readonly sd: Rate }
+  | { readonly kind: "uniform"; readonly low: Rate; readonly high: Rate };
+
+export interface StochasticValue {
+  readonly kind: "stochastic";
+  readonly base: Rate;
+  readonly dist: DistSpec;
+}
+
+export type ConstValue = number | Rate | StochasticValue;
 
 export interface SourceLocation {
   readonly file?: string;
@@ -86,6 +107,9 @@ export interface TickContext {
   // The basis overlay: this tick (or any whole tick) as a calendar date.
   // Throws when the model declares no basis.
   date(t?: number): CalendarDate;
+  // Horizon-bound calendar read: the fold's own unit, convention, and basis.
+  // Prefer this over the free when(t, unit, basis, convention) inside rules.
+  when(t?: number): CalendarDate;
 }
 
 export interface DerivedContext {
@@ -97,6 +121,7 @@ export interface DerivedContext {
   readonly tickUnit: TickUnit;
   perTick(name: string): number;
   date(t?: number): CalendarDate;
+  when(t?: number): CalendarDate;
 }
 
 export interface DerivedDef {
@@ -163,6 +188,10 @@ export interface ForkSpec {
   readonly horizon?: Horizon;
   readonly stocks?: Readonly<Record<string, number>>;
   readonly label?: string;
+  // Monte Carlo: the branch's random stream. Replaying the prefix's draws
+  // keeps it aligned with the trunk's same-path stream, so a fork continues
+  // the same world with the shocks the trunk would have seen.
+  readonly rng?: Rng | undefined;
 }
 
 export interface Branch {

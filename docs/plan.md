@@ -42,8 +42,8 @@ Both confirm the shape (see strudel technical manual; Tidal "What is a pattern?"
   core); there `day 73` means tick 73, nothing else. Concrete dates are an
   overlay: define a basis constant (`basis = date(1971-03-15)`, i.e. tick 0's
   timestamp) and all time display goes through a built-in like
-  `when(t, tickUnit, basis)` that renders the current tick value in calendar
-  terms. Every model works without a basis; models that need dates declare one,
+  `c.when(t)` (or `when(t, tickUnit, basis, convention)` outside a rule) that
+  renders the current tick value in calendar terms. Every model works without a basis; models that need dates declare one,
   and only display/validation touches the calendar. Engine semantics stay
   tick-pure regardless.
 3. **Clock granularity is semantics, not just tempo.** Changing the tick is not
@@ -96,8 +96,8 @@ system, never move it.
 - **Horizon**: `(start, end, tickUnit)` — e.g. 0–720 ticks in months, or
   weeks 0–780. Abstract time is the default: start and end are tick counts
   (start = 0 conventionally). Adding a basis constant overlay turns tick numbers
-  into calendar displays via `when(t, tickUnit, basis)` — it never changes
-  engine behavior.
+  into calendar displays via `c.when(t)` / `when(t, tickUnit, basis, convention)`
+  — it never changes engine behavior.
 - **Stocks / state (the variables)**: named numeric values; the state vector `[401k: 100000, Roth: 50000, Cash: 20000]` at tick T is the system state.
 - **Flows / rules**: pure deltas — `s' = s + inflows(s) - outflows(s)`. Includes state-specific rule classes per stock (the 401k vs Roth vs Cash distinction in Concept-Search.md).
 - **Gating**: guarded logic — `if age >= 73 -> rmd(401k -> Cash)`. The pure state-machine side of the hybrid.
@@ -145,7 +145,7 @@ around — the "time-traveling ledger" of Concept-Search.md is also the
 visualization substrate. The chart's x-axis is the normalized horizon, so
 switching the tick unit re-scales views without changing the model. Axis labels
 depend on the time mode: plain tick numbers by default, calendar labels from
-`when(t, tickUnit, basis)` once a basis is declared.
+`when(t, tickUnit, basis, convention)` once a basis is declared.
 
 ## Architecture sketch
 
@@ -163,7 +163,7 @@ depend on the time mode: plain tick numbers by default, calendar labels from
 4. **Browser REPL with visualization**: editor + run + stacked timeline chart + scrubber + playhead-linked code highlighting (provenance tags land in milestone 1's snapshot format from the start so this drops in).
 5. **Branches & what-if**: fork from snapshot, side-by-side comparison.
 6. **Tick re-normalization**: change tick unit on the same model; day-count conventions.
-7. **Calendar overlay**: basis constant + `when(t, tickUnit, basis)` for display, gating on dates, and validated tick↔calendar conversion (leap years, 30/360 vs actual).
+7. **Calendar overlay**: basis constant + `c.when(t)` / `when(t, tickUnit, basis, convention)` for display, gating on dates, and validated tick↔calendar conversion (leap years, 30/360 vs actual).
 8. **Monte Carlo mode**: random rate sequences, worker pool, percentile output (visualization gains percentile bands over the timeline).
 
 ## Naming

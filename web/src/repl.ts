@@ -9,15 +9,21 @@ import {
   lagged,
   laggedDelta,
   model,
+  normal,
   once,
   pct,
   rate,
+  stochastic,
   transfer,
+  uniform,
   unless,
   when,
 } from "../../src/dsl/model.js";
 
-const DSL = { model, flow, transfer, rate, pct, when, unless, every, once, between, lagged, laggedDelta, derived, date };
+const DSL = {
+  model, flow, transfer, rate, pct, when, unless, every, once, between,
+  lagged, laggedDelta, derived, date, stochastic, normal, uniform,
+};
 
 // The REPL evaluates model code with new Function (Strudel's eval trick). V8
 // wraps the body in a synthetic `function anonymous(...)` whose prologue shifts

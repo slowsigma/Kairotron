@@ -48,6 +48,22 @@ describe("derived quantities", () => {
     expect(() => run(bad)).toThrow(/acyclic/);
   });
 
+  it("keeps a derived named __proto__ as an ordinary key", () => {
+    const proto = model({
+      horizon: { start: 0, end: 1, unit: "month" },
+      stocks: { a: 1 },
+      rules: [],
+      derived: [
+        derived("__proto__", () => 7),
+        derived("use", (c) => c.derived["__proto__"]! + 1),
+      ],
+    });
+    const h = run(proto);
+    expect(Object.hasOwn(h[0]!.derived, "__proto__")).toBe(true);
+    expect(h[0]!.derived["__proto__"]).toBe(7);
+    expect(h[0]!.derived.use).toBe(8);
+  });
+
   it("rejects references to unknown derived names", () => {
     const bad = model({
       horizon: { start: 0, end: 2, unit: "month" },

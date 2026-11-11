@@ -13,14 +13,28 @@ import type {
   ScheduleSpec,
   Snapshot,
   StockMap,
+  StochasticValue,
   TickContext,
   TickUnit,
 } from "./types.js";
 import { msToTick, tickToMs, whenDate } from "./calendar.js";
-import { DEFAULT_DAY_COUNT, daysPerTick, nearestWholeTick, normalizeRate, ticksPerInterval, wholeTicks } from "./units.js";
+import { pathSeed, Rng } from "./random.js";
+import {
+  DEFAULT_DAY_COUNT,
+  daysPerTick,
+  nearestWholeTick,
+  normalizeRate,
+  normalizeVolatility,
+  ticksPerInterval,
+  wholeTicks,
+} from "./units.js";
 
 function isRate(v: ConstValue): v is Rate {
   return typeof v === "object" && v !== null && v.kind === "rate";
+}
+
+function isStochastic(v: ConstValue): v is StochasticValue {
+  return typeof v === "object" && v !== null && v.kind === "stochastic";
 }
 
 export function scheduleIntervalTicks(
@@ -86,6 +100,28 @@ export function run(model: Model, horizonOverride?: Horizon): readonly Snapshot[
   return fold(model, horizon);
 }
 
+// Monte Carlo (milestone 8): the fold is pure and the snapshots immutable,
+// so N paths are N independent folds — trivially parallel, and each path is
+// reproducible from (seed, path index) alone. runPathRange covers paths
+// [from, to) so a worker pool can split the range without renumbering seeds.
+export function runPathRange(
+  model: Model,
+  opts: { readonly seed: number; readonly from: number; readonly to: number; readonly horizon?: Horizon | undefined },
+): readonly (readonly Snapshot[])[] {
+  const horizon = opts.horizon ?? model.horizon;
+  if (!horizon) throw new Error("model has no horizon and none was passed to runPathRange()");
+  if (!Number.isInteger(opts.seed)) throw new Error(`Monte Carlo seed must be an integer (got ${opts.seed})`);
+  if (!Number.isInteger(opts.from) || !Number.isInteger(opts.to) || opts.to <= opts.from) {
+    throw new Error(`path range must be integers with to > from (got ${opts.from}..${opts.to})`);
+  }
+  if (opts.from < 0) throw new Error(`path range must start at 0 or later (got ${opts.from})`);
+  const out: (readonly Snapshot[])[] = [];
+  for (let p = opts.from; p < opts.to; p++) {
+    out.push(fold(model, horizon, undefined, new Rng(pathSeed(opts.seed, p))));
+  }
+  return Object.freeze(out);
+}
+
 // Branches & what-if: fork a fold at any committed snapshot. The branch
 // shares the trunk's prefix snapshots by reference (states never mutate, so
 // forking is free — Concept-Search.md), and lag() reads through the fork
@@ -114,14 +150,15 @@ export function fork(
   // The basis anchors tick 0, so a branch inherits the trunk's unchanged:
   // both timelines measure from the same civil moment regardless of unit or
   // horizon start.
-  const effHorizon: Horizon =
+  const effHorizon = freezeHorizon(
     horizon.basis !== undefined || trunkBasis === undefined
       ? horizon
       : {
           ...horizon,
           ...(horizon.convention === undefined ? { convention: trunkConv } : {}),
           basis: trunkBasis,
-        };
+        },
+  );
   if (!crossUnit) {
     if (atT < effHorizon.start) {
       throw new Error(`fork point t=${atT} is before the branch horizon start (${effHorizon.start})`);
@@ -143,7 +180,7 @@ export function fork(
       );
     }
   }
-  const snapshots = fold(model, effHorizon, { prefix, stocks: spec.stocks });
+  const snapshots = fold(model, effHorizon, { prefix, stocks: spec.stocks }, spec.rng);
   return Object.freeze({
     label: spec.label ?? "branch",
     forkT: atT,
@@ -220,7 +257,21 @@ interface FoldSeed {
   readonly stocks?: Readonly<Record<string, number>> | undefined;
 }
 
-function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapshot[] {
+// The horizon is a built-in readable (plan.md: read-only to rules and
+// derivations). Freeze a snapshot at fold entry so a rule that tries to mutate
+// c.horizon can never change the engine mid-run or corrupt the model for the
+// next run — mutating a frozen object throws in strict mode.
+function freezeHorizon(horizon: Horizon): Horizon {
+  return Object.isFrozen(horizon) ? horizon : Object.freeze({ ...horizon });
+}
+
+function fold(
+  model: Model,
+  horizonIn: Horizon,
+  seed?: FoldSeed,
+  rng?: Rng,
+): readonly Snapshot[] {
+  const horizon = freezeHorizon(horizonIn);
   const { start, end } = horizon;
   const convention = horizon.convention ?? DEFAULT_DAY_COUNT;
   if (!Number.isInteger(start) || !Number.isInteger(end)) {
@@ -235,10 +286,14 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
     );
   }
 
-  const plainConstants: Record<string, number> = {};
-  const rateConstants: Record<string, Rate> = {};
+  // Null prototypes keep user-chosen names like "__proto__" as ordinary own
+  // keys instead of silently setting the object's prototype.
+  const plainConstants: Record<string, number> = Object.create(null);
+  const rateConstants: Record<string, Rate> = Object.create(null);
+  const stochasticConstants: Record<string, StochasticValue> = Object.create(null);
   for (const [name, value] of Object.entries(model.constants)) {
     if (isRate(value)) rateConstants[name] = value;
+    else if (isStochastic(value)) stochasticConstants[name] = value;
     else plainConstants[name] = value;
   }
 
@@ -249,13 +304,65 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
     : { ...model.stocks };
   const history: Snapshot[] = seed ? [...seed.prefix] : [];
 
-  const perTickFn = (name: string): number => {
-    const rate = rateConstants[name];
-    if (!rate) throw new Error(`no rate constant named '${name}'`);
-    return normalizeRate(rate.value, rate.perUnit, horizon.unit, convention);
+  // Monte Carlo realization (milestone 8): one draw per stochastic constant
+  // per tick, in declaration order, regardless of which rules fire — the
+  // draw sequence therefore depends only on the tick grid, never on guard
+  // outcomes, so a fork can replay the prefix and continue the same world.
+  // Without an rng (the deterministic default) readers see the expected
+  // value: the base rate for a normal, the band midpoint for a uniform.
+  let tickRates: Record<string, number> | undefined;
+  const drawTick = (): void => {
+    if (!rng) return;
+    const out: Record<string, number> = Object.create(null);
+    for (const name of Object.keys(stochasticConstants)) {
+      const st = stochasticConstants[name]!;
+      const mean = normalizeRate(st.base.value, st.base.perUnit, horizon.unit, convention);
+      if (st.dist.kind === "normal") {
+        const sigmaTick = normalizeVolatility(
+          st.dist.sd.value,
+          st.dist.sd.perUnit,
+          horizon.unit,
+          convention,
+        );
+        out[name] = mean + sigmaTick * rng.normal();
+      } else {
+        // The band is a per-unit volatility: keep its midpoint (the
+        // expected per-tick rate) and scale its width by sqrt-time, exactly
+        // like a normal's sigma, so reticking does not change the outcome
+        // spread. Uniform bounds are validated to share one per-unit.
+        const low = normalizeRate(st.dist.low.value, st.dist.low.perUnit, horizon.unit, convention);
+        const high = normalizeRate(st.dist.high.value, st.dist.high.perUnit, horizon.unit, convention);
+        const mid = (low + high) / 2;
+        const halfWidth =
+          normalizeVolatility(
+            (st.dist.high.value - st.dist.low.value) / 2,
+            st.dist.high.perUnit,
+            horizon.unit,
+            convention,
+          );
+        out[name] = mid + (2 * rng.uniform() - 1) * halfWidth;
+      }
+    }
+    tickRates = out;
   };
 
-  // The calendar overlay read-side: a bound when(t, tickUnit, basis) for the
+  const perTickFn = (name: string): number => {
+    const rate = rateConstants[name];
+    if (rate) return normalizeRate(rate.value, rate.perUnit, horizon.unit, convention);
+    const st = stochasticConstants[name];
+    if (!st) throw new Error(`no rate constant named '${name}'`);
+    if (tickRates && Object.hasOwn(tickRates, name)) return tickRates[name]!;
+    if (st.dist.kind === "normal") {
+      return normalizeRate(st.base.value, st.base.perUnit, horizon.unit, convention);
+    }
+    return (
+      (normalizeRate(st.dist.low.value, st.dist.low.perUnit, horizon.unit, convention) +
+        normalizeRate(st.dist.high.value, st.dist.high.perUnit, horizon.unit, convention)) /
+      2
+    );
+  };
+
+  // The calendar overlay read-side: a bound c.when(t) / c.date(t) for the
   // fold's horizon. Absent a basis, touching dates is a clear user error.
   const dateAt = (t: number, from: string): CalendarDate => {
     if (horizon.basis === undefined) {
@@ -270,7 +377,9 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
   // earlier derivations — later/unknown references throw, which is what
   // keeps the derivation graph acyclic by construction.
   const evaluateDerived = (t: number, values: StockMap): StockMap => {
-    const out: Record<string, number> = {};
+    // Null prototype: a derivation named "__proto__" becomes a real own key
+    // (and the Proxy below keeps the acyclic/read-only checks honest).
+    const out: Record<string, number> = Object.create(null);
     for (const def of model.derived) {
       const visible: StockMap = new Proxy(out, {
         get(target, key) {
@@ -308,6 +417,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
         tickUnit: horizon.unit,
         perTick: perTickFn,
         date: (query?: number) => dateAt(query ?? t, `derived '${def.name}'`),
+        when: (query?: number) => dateAt(query ?? t, `derived '${def.name}'`),
       });
       const value = def.expr(ctx);
       if (!Number.isFinite(value)) {
@@ -350,6 +460,10 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
   };
 
   if (seed) {
+    // Replay the shared prefix's draws (one per snapshot, as the trunk drew
+    // per tick), so a Monte Carlo branch continues the same world the trunk's
+    // path left at the fork point instead of restarting the stream.
+    if (rng) for (let i = 0; i < seed.prefix.length; i++) drawTick();
     const head = history[history.length - 1]!;
     if (seed.stocks && Object.keys(seed.stocks).length > 0) {
       for (const [name, value] of Object.entries(seed.stocks)) {
@@ -370,6 +484,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
       history[history.length - 1] = freeze(head.t, forkStocks, deltas, head.derived);
     }
   } else {
+    drawTick();
     history.push(freeze(start, stocks, []));
   }
 
@@ -378,6 +493,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
   const from = history[history.length - 1]!.t;
 
   for (let t = from + 1; t <= end; t++) {
+    drawTick();
     const next: Record<string, number> = { ...stocks };
     const deltas: Delta[] = [];
 
@@ -390,6 +506,7 @@ function fold(model: Model, horizon: Horizon, seed?: FoldSeed): readonly Snapsho
         tickUnit: horizon.unit,
         perTick: perTickFn,
         date: (query?: number) => dateAt(query ?? t, `rule at t=${t}`),
+        when: (query?: number) => dateAt(query ?? t, `rule at t=${t}`),
         lag(stock: string, ticks: number): number {
           if (!Number.isInteger(ticks) || ticks < 1) {
             throw new Error(`lag requires a whole number of ticks >= 1 (got ${ticks})`);

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { TICK_UNITS, isTickUnit, normalizeRate, ticksPerInterval } from "../src/core/units.js";
+import {
+  TICK_UNITS,
+  isTickUnit,
+  nearestWholeTick,
+  normalizeRate,
+  ticksPerInterval,
+} from "../src/core/units.js";
 
 describe("rate normalization", () => {
   it("7%/year becomes 7/12 per monthly tick", () => {
@@ -37,6 +43,17 @@ describe("day-count convention", () => {
     const direct = normalizeRate(0.07, "year", "week");
     const viaDay = normalizeRate(normalizeRate(0.07, "year", "day"), "day", "week");
     expect(viaDay).toBeCloseTo(direct, 12);
+  });
+});
+
+describe("nearestWholeTick", () => {
+  it("accepts float noise but rejects genuine fractions at any scale", () => {
+    expect(nearestWholeTick(12)).toBe(12);
+    expect(nearestWholeTick(12 + 1e-13)).toBe(12);
+    expect(nearestWholeTick(12.25)).toBeUndefined();
+    // The old 1e-9 relative band would accept this as 1e9 + 1.
+    expect(nearestWholeTick(1e9 + 0.5)).toBeUndefined();
+    expect(nearestWholeTick(1e9)).toBe(1e9);
   });
 });
 

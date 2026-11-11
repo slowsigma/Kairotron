@@ -1,5 +1,6 @@
 import { formatCalDate, tickToMs } from "../../src/core/calendar.js";
 import { DEFAULT_DAY_COUNT } from "../../src/core/units.js";
+import type { PercentileRow } from "../../src/outputs/table.js";
 import type { Snapshot } from "../../src/core/types.js";
 import { fmtNum } from "./chart.js";
 
@@ -53,4 +54,49 @@ export function renderInspector(
     tr.addEventListener("mouseenter", () => onHoverRule(rule));
     tr.addEventListener("click", () => onHoverRule(rule));
   });
+}
+
+// Monte Carlo mode (milestone 8): the state vector at the playhead is a
+// distribution, not a point — one row per stock, one column per percentile.
+// Deltas have no meaning across paths, so they are replaced by the run's
+// seed identity (same seed, same paths).
+export function renderPercentileInspector(
+  root: HTMLElement,
+  row: PercentileRow,
+  colors: ReadonlyMap<string, string>,
+  tickUnit: string,
+  labels: readonly string[],
+  paths: number,
+  seed: number,
+): void {
+  const head = `<tr><th></th>${labels.map((l) => `<th>${escapeHtml(l)}</th>`).join("")}</tr>`;
+  const when =
+    row.basis === undefined
+      ? ""
+      : ` · ${formatCalDate(tickToMs(row.t, row.unit, row.basis, row.convention ?? DEFAULT_DAY_COUNT))}`;
+  const table = (
+    samples: Readonly<Record<string, Readonly<Record<string, number>>>>,
+    decorate: (name: string) => string,
+    digits: number,
+  ): string =>
+    Object.entries(samples)
+      .map(
+        ([name, values]) =>
+          `<tr><td>${decorate(name)}</td>${labels
+            .map((l) => `<td>${values[l] === undefined ? "—" : fmtNum(values[l]!, digits)}</td>`)
+            .join("")}</tr>`,
+      )
+      .join("");
+  const stockRows = table(
+    row.stocks,
+    (name) =>
+      `<span class="sw" style="background:${colors.get(name) ?? "#666"}"></span>${escapeHtml(name)}`,
+    2,
+  );
+  const derivedRows = table(row.derived, (name) => `~${escapeHtml(name)}`, 4);
+  root.innerHTML =
+    `<h4>t = ${row.t} (${tickUnit} ticks)${when}</h4>` +
+    `<div style="color:var(--dim)">Monte Carlo · ${paths} paths · seed ${seed}</div>` +
+    `<table class="insp">${head}${stockRows}</table>` +
+    (derivedRows ? `<h4>derived</h4><table class="insp">${head}${derivedRows}</table>` : "");
 }

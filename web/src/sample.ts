@@ -3,7 +3,7 @@ export const SAMPLE = `// Kairotron — edit and Run (Ctrl+Enter).
 // Constants may be plain numbers or rates; rules read plain numbers via
 // c.constants and rates (re-normalized to the tick unit) via c.perTick.
 // horizon.basis = date("...") anchors tick 0 to a civil date: display and
-// axis labels go through it (gates can read it via c.date() / when(t, unit, basis)).
+// axis labels go through it (gates can read it via c.date() / c.when(t)).
 model({
   horizon: { start: 0, end: 40, unit: "year", convention: "actual/365", basis: date("2026-01-01") },
   constants: {

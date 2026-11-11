@@ -39,6 +39,45 @@ describe("fold", () => {
     expect(Object.isFrozen(history[5]!.deltas)).toBe(true);
   });
 
+  it("the horizon is a frozen readable — mutation cannot corrupt the run or the model", () => {
+    expect(Object.isFrozen(growthModel.horizon)).toBe(true);
+    expect(() => {
+      (growthModel.horizon as { unit: string }).unit = "year";
+    }).toThrow(TypeError);
+    const sneaky = model({
+      horizon: { start: 0, end: 12, unit: "month" },
+      constants: { growth: pct(7, "year") },
+      stocks: { fund: 10000 },
+      rules: [
+        flow("fund", (c) => {
+          try {
+            (c.horizon as { unit: string }).unit = "year";
+          } catch {
+            // strict-mode assignment to the frozen horizon throws; ignore it
+          }
+          return c.stocks.fund * c.perTick("growth");
+        }, "growth"),
+      ],
+    });
+    const a = run(sneaky);
+    const b = run(sneaky);
+    expect(a.map((s) => s.unit)).toEqual(Array.from({ length: 13 }, () => "month"));
+    expect(a.map((s) => s.stocks.fund)).toEqual(run(growthModel).map((s) => s.stocks.fund));
+    expect(b.map((s) => s.stocks.fund)).toEqual(a.map((s) => s.stocks.fund));
+
+    const mutator = model({
+      horizon: { start: 0, end: 1, unit: "month" },
+      stocks: { fund: 1 },
+      rules: [
+        flow("fund", (c) => {
+          (c.horizon as { unit: string }).unit = "year";
+          return 0;
+        }, "mutate"),
+      ],
+    });
+    expect(() => run(mutator)).toThrow(TypeError);
+  });
+
   it("deltas carry rule labels and source provenance", () => {
     const history = run(growthModel);
     const d = history[1]!.deltas[0]!;

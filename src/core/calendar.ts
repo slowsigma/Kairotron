@@ -66,6 +66,9 @@ function daysInCivilMonth(y: number, m1: number): number {
 // first clamped to 30, so a "month" never advances past the 30th. The basis's
 // time-of-day carries across every step.
 function civilStep(basis: number, nMonths: number, clampTo30: boolean): number {
+  // Tick 0 *is* the declared basis — including a 31st-of-month basis under
+  // 30/360, whose clamp applies when stepping, not to the anchor itself.
+  if (nMonths === 0) return basis;
   const base = new Date(basis);
   const total = base.getUTCFullYear() * 12 + base.getUTCMonth() + nMonths;
   const y = Math.floor(total / 12);
@@ -217,7 +220,8 @@ export function calDate(ms: number): CalendarDate {
   });
 }
 
-// The `when(t, tickUnit, basis)` built-in: render a tick in calendar terms.
+// The calendar read used by `c.when(t)` / `c.date(t)` and the free
+// `when(t, tickUnit, basis, convention)`: render a tick in calendar terms.
 // The convention is the model's declared day count; actual/365 is the default
 // because a basis without a convention means "the civil calendar".
 export function whenDate(

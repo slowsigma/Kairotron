@@ -1,11 +1,21 @@
 import { fork, run, snapAtOrBefore } from "../../src/core/fold.js";
 import { formatCalDate, tickAtOrBefore, tickToMs } from "../../src/core/calendar.js";
+import { DEFAULT_MC_SEED, forkMonteCarlo, type MonteCarloResult } from "../../src/core/mc.js";
 import type { Horizon, Model, Rule, Snapshot } from "../../src/core/types.js";
 import { DEFAULT_DAY_COUNT, daysPerTick } from "../../src/core/units.js";
-import { formatCsv, formatTable } from "../../src/outputs/table.js";
+import {
+  formatCsv,
+  formatPercentileCsv,
+  formatPercentileTable,
+  formatTable,
+  summarizeMonteCarlo,
+  type PercentileRow,
+  type PercentileSummary,
+} from "../../src/outputs/table.js";
 import {
   colorOf,
   fmtNum,
+  renderBands,
   renderDerived,
   renderDiff,
   renderStocks,
@@ -17,7 +27,8 @@ import {
   type XLabel,
 } from "./chart.js";
 import { Editor } from "./editor.js";
-import { renderInspector } from "./inspector.js";
+import { renderInspector, renderPercentileInspector } from "./inspector.js";
+import { runPathsPool } from "./mc-pool.js";
 import { compileModel, horizonOverride, userLine, type Compiled } from "./repl.js";
 import { SAMPLE } from "./sample.js";
 
@@ -44,7 +55,15 @@ interface BranchRec {
   history: readonly Snapshot[];
   horizon: Horizon;
   ruleLines: Map<string, number[]>;
+  // Monte Carlo (milestone 8): the raw path set (for same-world forks) and
+  // its percentile summary (for the band view). The deterministic run stays
+  // in `history` — it is the expected-value baseline the bands sit on.
+  mc?: MonteCarloResult | undefined;
+  summary?: PercentileSummary | undefined;
 }
+
+// Chart bands need a level in from both edges, hence five quantiles.
+const MC_UI_PERCENTILES = [10, 25, 50, 75, 90];
 
 interface AppState {
   branches: BranchRec[];
@@ -127,7 +146,7 @@ function stockColors(): Map<string, string> {
 }
 
 // Calendar axis: the timeline's snapshots carry the basis; ticks render as
-// civil dates instead of bare numbers (plan.md's when(t, tickUnit, basis)).
+// civil dates instead of bare numbers (plan.md's c.when(t) / c.date(t)).
 // Use the snapshot in force at each tick — a branch may carry the trunk's
 // basis through its shared prefix and its variant's own basis on new ticks.
 function xLabelFor(c: BranchRec): XLabel | undefined {
@@ -166,8 +185,12 @@ function currentSnap(): Snapshot | undefined {
 function renderView(): void {
   const c = cur();
   if (c.history.length === 0) return;
-  const ghost = ghostOf();
   const xLabel = xLabelFor(c);
+  if (c.mc && c.summary) {
+    renderMonteCarloView(c, xLabel);
+    return;
+  }
+  const ghost = ghostOf();
   const stocks = renderStocks(stocksSvg, c.history, state.playhead, state.mode, state.hidden, ghost, xLabel);
   const derived = renderDerived(derivedSvg, c.history, state.playhead, state.hidden, ghost, xLabel);
   const diffPane = $("diff-pane");
@@ -198,6 +221,69 @@ function renderView(): void {
     if (!tabBody.querySelector("pre")) {
       tabBody.innerHTML = `<pre class="raw">${escapeHtml(formatTable(c.history))}</pre>`;
     }
+  }
+}
+
+// ---- Monte Carlo view (milestone 8) --------------------------------------
+// Bands replace point lines while the paths are in play: p10–p90 outer,
+// p25–p75 inner, median on top (chart.ts). No per-tick rule highlighting —
+// deltas are a single-path notion — the inspector shows the tick's
+// distribution instead.
+
+function medLabelOf(labels: readonly string[]): string {
+  return labels.includes("p50") ? "p50" : labels[Math.floor(labels.length / 2)]!;
+}
+
+function rowAtT(summary: PercentileSummary, t: number): PercentileRow {
+  let row = summary.rows[0]!;
+  for (const r of summary.rows) {
+    if (r.t <= t) row = r;
+    else break;
+  }
+  return row;
+}
+
+function renderMonteCarloView(c: BranchRec, xLabel?: XLabel): void {
+  const mc = c.mc!;
+  const summary = c.summary!;
+  const stocks = renderBands(stocksSvg, summary, state.playhead, state.hidden, {
+    kind: "stocks",
+    h: 280,
+    forkT: c.forkT,
+    xLabel,
+  });
+  const derived = renderBands(derivedSvg, summary, state.playhead, state.hidden, {
+    kind: "derived",
+    h: 150,
+    perSeries: true,
+    title: "mc derived ~",
+    forkT: c.forkT,
+    xLabel,
+  });
+  // Same restore path as the plain pane: hidden only while this run derives
+  // nothing at all.
+  const derivedPane = $("derived-pane");
+  derivedPane.style.display = derived.length === 0 ? "none" : "";
+  $("diff-pane").hidden = true;
+  renderLegend($("stocks-legend"), stocks);
+  renderLegend($("derived-legend"), derived);
+  const row = rowAtT(summary, state.playhead);
+  const when =
+    row.basis === undefined
+      ? ""
+      : ` · ${formatCalDate(tickToMs(row.t, row.unit, row.basis, row.convention ?? DEFAULT_DAY_COUNT))}`;
+  const med = medLabelOf(summary.labels);
+  const values = Object.entries(row.stocks)
+    .map(([n, s]) => `${n}=${fmtNum(s[med] ?? 0)}`)
+    .join("  ");
+  $("playhead-label").textContent =
+    `t=${state.playhead} · ${c.horizon.unit}${when} · mc ${mc.paths} paths · seed ${mc.seed} · ${med} ${values}`;
+  editor.setHighlights(new Set());
+
+  if (state.tab === "inspector") {
+    renderPercentileInspector(tabBody, row, stockColors(), c.horizon.unit, summary.labels, mc.paths, mc.seed);
+  } else if (!tabBody.querySelector("pre")) {
+    tabBody.innerHTML = `<pre class="raw">${escapeHtml(formatPercentileTable(summary))}</pre>`;
   }
 }
 
@@ -246,7 +332,19 @@ function setPlayhead(t: number): void {
   renderView();
 }
 
-function runNow(): void {
+function mcInputs(): { paths: number; seed: number } {
+  const raw = ($("mc-paths") as unknown as HTMLInputElement).value.trim();
+  const paths = raw === "" ? 0 : Number(raw);
+  if (paths !== 0 && (!Number.isInteger(paths) || paths < 1)) {
+    throw new Error(`mc paths must be a whole number >= 1 (got ${raw})`);
+  }
+  const rawSeed = ($("mc-seed") as unknown as HTMLInputElement).value.trim();
+  const seed = rawSeed === "" ? DEFAULT_MC_SEED : Number(rawSeed);
+  if (!Number.isInteger(seed)) throw new Error(`mc seed must be an integer (got ${rawSeed})`);
+  return { paths, seed };
+}
+
+async function runNow(): Promise<void> {
   const code = editor.text;
   try {
     const compiled = compileModel(code);
@@ -259,20 +357,31 @@ function runNow(): void {
       base,
     );
     const horizon = override ?? base;
+    const { paths: mcPaths, seed: mcSeed } = mcInputs();
     const c = cur();
     const t = performance.now();
     let status: string;
     if (c.forkT === undefined) {
+      // The deterministic run is always folded — it is the expected-value
+      // baseline the bands sit on, and the timeline that scrubbing, forking
+      // and branch re-forks ride on. Monte Carlo paths ride alongside it.
       const history = run(compiled.model, override);
+      let mc: MonteCarloResult | undefined;
+      if (mcPaths > 0) {
+        mc = await runPathsPool(compiled.model, code, horizon, mcPaths, mcSeed);
+      }
       const ms = performance.now() - t;
       c.code = code;
       c.model = compiled.model;
       c.history = history;
       c.horizon = horizon;
       c.ruleLines = collectRuleLines(compiled.model, compiled);
+      c.mc = mc;
+      c.summary = mc ? summarizeMonteCarlo(mc, MC_UI_PERCENTILES) : undefined;
       // Branches ride out trunk edits: re-fork them from the new trunk at
-      // their original tick. Forks whose tick fell out of the new horizon or
-      // whose tick unit no longer matches are dropped.
+      // their original tick (their Monte Carlo from the new trunk's paths,
+      // keeping the branch's own seed). Forks whose tick fell out of the new
+      // horizon or whose unit no longer matches are dropped.
       const dropped: string[] = [];
       let reforked = 0;
       for (const b of state.branches) {
@@ -285,6 +394,14 @@ function runNow(): void {
         }
         try {
           b.history = fork(history, b.forkT, b.model, { label: b.label, horizon: b.horizon }).snapshots;
+          if (b.mc) {
+            if (!mc) throw new Error("the trunk is deterministic again");
+            // Continue the *new* trunk's world: its seed, not the old branch's.
+            b.mc = forkMonteCarlo(mc, b.forkT, b.model, { horizon: b.horizon });
+            b.summary = summarizeMonteCarlo(b.mc, MC_UI_PERCENTILES);
+          } else {
+            b.summary = undefined;
+          }
           reforked++;
         } catch {
           dropped.push(b.label);
@@ -298,17 +415,35 @@ function runNow(): void {
       renderBranchBar();
       const forkNote =
         reforked ? ` · reforked ${reforked}` : dropped.length ? ` · dropped ${dropped.join(", ")}` : "";
-      status = `ok — ${history.length - 1} ticks · ${ms.toFixed(1)}ms${forkNote}`;
+      status = mc
+        ? `mc — ${mc.paths} paths × ${history.length - 1} ticks · seed ${mc.seed} · ${ms.toFixed(1)}ms${forkNote}`
+        : `ok — ${history.length - 1} ticks · ${ms.toFixed(1)}ms${forkNote}`;
     } else {
       if (trunk().history.length === 0) throw new Error("branches need the trunk — run main first");
       const b = fork(trunk().history, c.forkT, compiled.model, { label: c.label, horizon });
+      // Monte Carlo on a branch forks the trunk's *paths*: path i continues
+      // path i's shocks (fold replays the prefix stream), so the band gap
+      // vs the trunk is the what-if's effect with the noise held fixed.
+      let mc: MonteCarloResult | undefined;
+      if (mcPaths > 0) {
+        const th = trunk();
+        if (!th.mc) {
+          throw new Error("Monte Carlo branches fork the trunk's paths — run main with mc paths first");
+        }
+        // Always inherit the trunk's seed — a branch is the same world.
+        mc = forkMonteCarlo(th.mc, c.forkT, compiled.model, { horizon });
+      }
       const ms = performance.now() - t;
       c.code = code;
       c.model = compiled.model;
       c.history = b.snapshots;
       c.horizon = b.horizon;
       c.ruleLines = collectRuleLines(compiled.model, compiled);
-      status = `${c.label} · ok — ${b.snapshots.length - 1} ticks · ${ms.toFixed(1)}ms · forked @t=${c.forkT}`;
+      c.mc = mc;
+      c.summary = mc ? summarizeMonteCarlo(mc, MC_UI_PERCENTILES) : undefined;
+      status = mc
+        ? `${c.label} · mc — ${mc.paths} paths × ${b.snapshots.length - 1} ticks · seed ${mc.seed} · ${ms.toFixed(1)}ms · forked @t=${c.forkT}`
+        : `${c.label} · ok — ${b.snapshots.length - 1} ticks · ${ms.toFixed(1)}ms · forked @t=${c.forkT}`;
     }
     const c2 = cur();
     // A fork variant can introduce stocks/derivations after the shared prefix,
@@ -512,17 +647,43 @@ document.querySelectorAll<HTMLButtonElement>("#tabs button").forEach((btn) => {
 });
 
 $("exp-csv").addEventListener("click", () => {
-  if (cur().history.length) download("kairotron.csv", formatCsv(cur().history), "text/csv");
+  const c = cur();
+  if (c.summary) {
+    download("kairotron-mc.csv", formatPercentileCsv(c.summary), "text/csv");
+    return;
+  }
+  if (c.history.length) download("kairotron.csv", formatCsv(c.history), "text/csv");
 });
 $("exp-json").addEventListener("click", () => {
   const c = cur();
-  if (c.history.length) {
+  if (!c.history.length) return;
+  if (c.mc && c.summary) {
+    // The percentiles, not the raw paths: N immutable timelines are big, and
+    // the summary is the answer. Same seed reproduces the paths on reload.
     download(
-      "kairotron.json",
-      JSON.stringify({ branch: c.label, forkT: c.forkT, horizon: c.horizon, history: c.history }, null, 2),
+      "kairotron-mc.json",
+      JSON.stringify(
+        {
+          mode: "mc",
+          branch: c.label,
+          seed: c.mc.seed,
+          paths: c.mc.paths,
+          percentiles: c.summary.percentiles,
+          horizon: c.horizon,
+          rows: c.summary.rows,
+        },
+        null,
+        2,
+      ),
       "application/json",
     );
+    return;
   }
+  download(
+    "kairotron.json",
+    JSON.stringify({ branch: c.label, forkT: c.forkT, horizon: c.horizon, history: c.history }, null, 2),
+    "application/json",
+  );
 });
 
 window.addEventListener("keydown", (e) => {

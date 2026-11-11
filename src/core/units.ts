@@ -93,6 +93,19 @@ export function ticksPerInterval(
   return (value * daysPerTick(perUnit, convention)) / daysPerTick(tickUnit, convention);
 }
 
+// Volatility (not rate): spread accrues over *time*, not linearly — a
+// 15%/year sigma is 15/√12 %/month. Independent per-tick shocks with this
+// scaling give the same outcome spread at any tick granularity, so Monte
+// Carlo keeps "the tick unit is semantics" honest.
+export function normalizeVolatility(
+  value: number,
+  perUnit: TickUnit,
+  tickUnit: TickUnit,
+  convention: DayCount = DEFAULT_DAY_COUNT,
+): number {
+  return value * Math.sqrt(daysPerTick(tickUnit, convention) / daysPerTick(perUnit, convention));
+}
+
 // Duration-preserving tick conversion: tick numbers measured from 0 are
 // durations, so reticking converts them through days.
 export function convertTicks(
@@ -105,15 +118,19 @@ export function convertTicks(
 }
 
 // Floating-point ratios like 12 × (365/12) don't come back exactly integral;
-// durations this close to a whole tick are rounding noise, not friction.
-const TICK_EPSILON = 1e-9;
+// durations this close to a whole tick are rounding noise, not friction. Scale
+// by machine epsilon, not a fixed 1e-9: at a billion second-ticks the old
+// relative band silently accepted (and rounded) fractions of thousands of
+// seconds. An absolute floor absorbs tiny ordinary-arithmetic noise.
+const TICK_EPSILON_ABS = 1e-12;
+const TICK_EPSILON_REL = 8 * Number.EPSILON;
 
 // Round a tick count to the nearest whole tick, or undefined when it genuinely
 // falls between ticks. Directions that convert through days (horizon re-ticks
 // and schedule intervals) share this so both accept the same rounding noise.
 export function nearestWholeTick(ticks: number): number | undefined {
   const rounded = Math.round(ticks);
-  const tolerance = TICK_EPSILON * Math.max(1, Math.abs(ticks));
+  const tolerance = Math.max(TICK_EPSILON_ABS, TICK_EPSILON_REL * Math.max(1, Math.abs(ticks)));
   return Math.abs(ticks - rounded) <= tolerance ? rounded : undefined;
 }
 

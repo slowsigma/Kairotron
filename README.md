@@ -29,10 +29,13 @@ npx tsx src/cli.ts examples/retirement.ts --flows
 npx tsx src/cli.ts examples/retirement.ts --fork-at 6 \
   --variant examples/retirement-boost.ts --diff
 
+# Monte Carlo: sample 500 stochastic paths and print the percentile table
+npx tsx src/cli.ts examples/retirement-mc.ts --mc 500 --seed 1
+
 # Browser REPL: live editor + timeline chart + scrubber + code highlighting
 npm run dev        # serves web/ with Vite
 
-# Tests (87, incl. numeric verification against hand-rolled loops)
+# Tests (220, incl. numeric verification against hand-rolled loops)
 npm test
 ```
 
@@ -131,8 +134,9 @@ The whole engine is `reduce` over ticks: `s_t = step(s_{t-1}, t, params)`.
   display overlay you add later — `horizon.basis = date("1971-03-15")` anchors
   tick 0 to a civil date, and *nothing else changes*: the fold stays tick-pure.
   Rules then gate on dates (`when(c => c.date().year >= 2044, ...)`, or the
-  plan-shaped `when(t, "month", basis)`), snapshots carry the basis, tables and
-  CSV gain a `date` column, and chart axes render calendar labels. With a basis,
+  horizon-bound `c.when()` / plan-shaped `when(t, unit, basis, convention)`),
+  snapshots carry the basis, tables and CSV gain a `date` column, and chart axes
+  render calendar labels. With a basis,
   month/quarter/year ticks step the *civil* calendar (Jan 31 + 1 monthly tick →
   Feb 28/29 — leap-true under `actual/365`, clamped at 30 under `30/360`).
 - **Rates carry units.** `pct(7, "year")` becomes 7/12 per monthly tick,
@@ -150,8 +154,54 @@ The whole engine is `reduce` over ticks: `s_t = step(s_{t-1}, t, params)`.
   branch may even continue on a **different tick unit**: the trunk prefix is
   re-expressed at the moments where both grids agree, and `lagged` reads it
   hold-last.
-- **Deterministic by default.** Monte Carlo is an opt-in mode on the roadmap,
-  not the default execution model.
+- **Deterministic by default, Monte Carlo on demand.** A plain run folds the
+  expected value even when the model declares randomness. Mark a rate as a
+  random sequence — `stochastic(pct(7, "year"), normal(pct(15, "year")))` —
+  and `--mc <paths>` folds N seeded paths in parallel (browser worker pool,
+  CLI sequential) into a percentile timeline. Per-tick noise scales with
+  `sqrt(tick/perUnit)`, so the outcome spread doesn't depend on tick
+  granularity; same seed replays every path bit for bit. Seeding a fork
+  (`--mc` with `--fork-at`) gives *same-world* what-ifs: each branch path
+  continues its trunk path's own shock sequence, so the band gap is the
+  decision's effect with the noise held fixed. Must keep the trunk's tick grid
+  (unit, convention, basis) — a re-ticked branch is a new random world, and the
+  engine rejects it rather than mixing shock sequences.
+
+### Monte Carlo is opt-in
+
+A stochastic variant reads like the deterministic one
+([retirement-mc.ts](examples/retirement-mc.ts)) — the only change is that a rate
+starts carrying noise:
+
+```ts
+constants: {
+  contribution: 2750,
+  growth: stochastic(pct(7, "year"), normal(pct(15, "year"))), // 7%/yr, 15%/yr vol
+  cashYield: pct(1.5, "year"),
+}
+```
+
+A plain run still folds the *expected-value* path — the very table above. Sample
+the randomness instead and each tick becomes a distribution:
+
+```
+npx tsx src/cli.ts examples/retirement-mc.ts --mc 2000 --seed 3 --percentiles 5,50,95
+```
+
+```
+monte carlo — 2000 paths × 240 ticks · seed 3
+  t   preTax·p5    preTax·p50    preTax·p95    cash·p5   cash·p50   cash·p95  ~netWorth·p5  ~netWorth·p50  ~netWorth·p95
+---  ----------  ------------  ------------  ---------  ---------  ---------  ------------  -------------  -------------
+  0  120,000.00    120,000.00    120,000.00  25,000.00  25,000.00  25,000.00    145,000.00     145,000.00     145,000.00
+  1  114,557.95    123,532.72    132,103.19  25,031.25  25,031.25  25,031.25    139,589.20     148,563.97     157,134.44
+240  770,714.15  1,685,034.99  3,878,220.04  33,740.15  33,740.15  33,740.15    804,454.30   1,718,775.14   3,911,960.19
+```
+
+The cash columns collapse everywhere (nothing random touches them), and the path
+mean converges to the expected-value fold — the noise is mean-preserving, it
+only redistributes. In the browser the same mode draws **percentile bands**
+(p10–p90, p25–p75, median) behind the stocks; in a worker pool, same seed
+replaying bit-for-bit.
 
 ## Examples
 
@@ -167,6 +217,8 @@ Realistic exemplars, each verified tick-by-tick against a hand-rolled loop in
 | [`epidemic-sir.ts`](examples/epidemic-sir.ts) | epidemiology | stock↔stock transfers, guarded recurring schedules |
 | [`supply-chain.ts`](examples/supply-chain.ts) | operations | delays, conservation of units, bullwhip oscillation |
 | [`rmd-calendar.ts`](examples/rmd-calendar.ts) | personal finance | calendar basis: date-gated contributions and RMDs (`age >= 73`) |
+| [`retirement-mc.ts`](examples/retirement-mc.ts) | personal finance | Monte Carlo: a stochastic growth rate folded over seeded paths |
+| [`retirement-mc-cautious.ts`](examples/retirement-mc-cautious.ts) | personal finance | same-world fork: de-risking replayed against each trunk path's shocks |
 
 ## Browser REPL
 
@@ -184,6 +236,13 @@ buffer, the trunk's continuation ghosts behind it as dashed lines, and a Δ-pane
 plots branch-minus-trunk — the what-if answer, per stock, per tick. Branch chips
 switch timelines; re-running the trunk re-forks them automatically.
 
+With **mc paths** set in the toolbar, a stochastic model folds N seeded paths on
+a **worker pool** (the engine is pure, so the paths are embarrassingly parallel)
+and the charts swap to percentile bands; the inspector and CSV/JSON export then
+report the tick's distribution instead of a point. Fork a branch with paths on
+and each branch path continues its trunk path's shocks — a same-world what-if.
+Leave the field empty and everything is the deterministic expected-value run.
+
 Zero runtime dependencies: the engine imports unchanged from `src/`, the UI is
 vanilla TypeScript over SVG.
 
@@ -191,12 +250,12 @@ vanilla TypeScript over SVG.
 
 ```
 src/
-  core/     fold runner, units, immutable snapshot types (pure, no UI)
+  core/     fold runner, units, seeded PRNG, immutable snapshot types (pure, no UI)
   dsl/      model({...}) builder + rule constructors + provenance capture
-  outputs/  table / CSV / flows renderers
-web/        browser REPL (Vite, vanilla TS — editor, chart, scrubber, inspector)
+  outputs/  table / CSV / flows / percentile renderers
+web/        browser REPL (Vite, vanilla TS — editor, chart, scrubber, inspector, MC worker pool)
 examples/   exemplar models across four domains
-test/       units, fold, gating, derived, exemplars, REPL, UI smoke tests
+test/       units, fold, gating, derived, exemplars, Monte Carlo, REPL, UI smoke tests
 docs/       plan.md (the plan), Concept-Search.md, time-varying-values.md
 ```
 
@@ -211,7 +270,7 @@ Milestones from [`docs/plan.md`](docs/plan.md):
 - [x] Branches & what-if — fork from any snapshot (free, because states never mutate)
 - [x] Tick re-normalization — same model, new tick unit; day-count conventions
 - [x] Calendar overlay — basis + `date()`, civil date gating/display (`when(...)`, `c.date()`), date column & calendar axes
-- [ ] Monte Carlo mode — random rate sequences, worker pool, percentile bands
+- [x] Monte Carlo mode — random rate sequences (`stochastic`/`normal`/`uniform`), seeded paths on a worker pool, percentile bands over the timeline
 
 ## Design docs
 

@@ -1,7 +1,8 @@
 import { snapAtOrBefore } from "../core/fold.js";
 import { formatCalDate, tickAtOrBefore, tickToMs } from "../core/calendar.js";
 import { DEFAULT_DAY_COUNT, daysPerTick } from "../core/units.js";
-import type { Branch, Snapshot } from "../core/types.js";
+import type { MonteCarloResult } from "../core/mc.js";
+import type { Branch, DayCount, Snapshot, TickUnit } from "../core/types.js";
 
 function fmt(n: number): string {
   return n.toLocaleString("en-US", {
@@ -170,4 +171,181 @@ export function formatFlows(history: readonly Snapshot[]): string {
     }
   }
   return lines.join("\n");
+}
+
+// ---- Monte Carlo percentiles (milestone 8) -------------------------------
+// Collapse N immutable path timelines into one percentile timeline: the
+// print/visual analog of the stacked chart. Every paths share the fold's
+// tick grid, so aggregation is positional; stocks/derived are unioned the
+// same defensive way the plain table unions them across fork variants.
+
+export const DEFAULT_PERCENTILES: readonly number[] = [10, 50, 90];
+
+export interface PercentileRow {
+  readonly t: number;
+  readonly unit: TickUnit;
+  readonly convention?: DayCount | undefined;
+  readonly basis?: number | undefined;
+  readonly count: number;
+  readonly stocks: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  readonly derived: Readonly<Record<string, Readonly<Record<string, number>>>>;
+}
+
+export interface PercentileSummary {
+  readonly seed: number;
+  readonly paths: number;
+  readonly percentiles: readonly number[];
+  readonly labels: readonly string[];
+  readonly rows: readonly PercentileRow[];
+}
+
+export const percentileLabel = (p: number): string => `p${p}`;
+
+// Linear interpolation between the two closest ranks (the R-7 / NumPy
+// default) — deterministic and stable on ties.
+export function percentile(sorted: readonly number[], p: number): number {
+  if (sorted.length === 0) throw new Error("percentile of an empty sample");
+  if (sorted.length === 1) return sorted[0]!;
+  const idx = (sorted.length - 1) * (p / 100);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo]!;
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (idx - lo);
+}
+
+export function summarizeMonteCarlo(
+  mc: MonteCarloResult,
+  percentiles: readonly number[] = DEFAULT_PERCENTILES,
+): PercentileSummary {
+  if (mc.timelines.length === 0) throw new Error("summarizeMonteCarlo requires at least one path");
+  if (percentiles.length === 0) throw new Error("summarizeMonteCarlo requires at least one percentile");
+  for (const p of percentiles) {
+    if (!Number.isFinite(p) || p < 0 || p > 100) {
+      throw new Error(`percentile must be within 0..100 (got ${p})`);
+    }
+  }
+  const n = mc.timelines[0]!.length;
+  if (n === 0) throw new Error("Monte Carlo timelines are empty");
+  const t0 = mc.timelines[0]![0]!.t;
+  for (const [i, hist] of mc.timelines.entries()) {
+    if (hist.length !== n) {
+      throw new Error(`path ${i} has ${hist.length} snapshots, path 0 has ${n} — timelines must share the tick grid`);
+    }
+    if (hist[0]!.t !== t0) {
+      throw new Error(`path ${i} starts at t=${hist[0]!.t}, path 0 at t=${t0} — timelines must share the tick grid`);
+    }
+  }
+  const labels = percentiles.map(percentileLabel);
+  const namesOf = (key: "stocks" | "derived") => {
+    const names = new Set<string>();
+    for (const hist of mc.timelines) for (const s of hist) for (const k of Object.keys(s[key])) names.add(k);
+    return [...names];
+  };
+  const stockNames = namesOf("stocks");
+  const derivedNames = namesOf("derived");
+
+  const perName = (key: "stocks" | "derived", names: readonly string[], i: number) => {
+    const out: Record<string, Record<string, number>> = {};
+    for (const name of names) {
+      const values: number[] = [];
+      for (const hist of mc.timelines) {
+        const v = hist[i]![key][name];
+        if (v !== undefined) values.push(v);
+      }
+      if (values.length === 0) continue;
+      values.sort((a, b) => a - b);
+      const row: Record<string, number> = {};
+      for (const [j, p] of percentiles.entries()) row[labels[j]!] = percentile(values, p);
+      out[name] = row;
+    }
+    return out;
+  };
+
+  const rows: PercentileRow[] = [];
+  for (let i = 0; i < n; i++) {
+    const s0 = mc.timelines[0]![i]!;
+    rows.push(
+      Object.freeze({
+        t: s0.t,
+        unit: s0.unit,
+        ...(s0.convention === undefined ? {} : { convention: s0.convention }),
+        ...(s0.basis === undefined ? {} : { basis: s0.basis }),
+        count: mc.timelines.length,
+        stocks: Object.freeze(perName("stocks", stockNames, i)),
+        derived: Object.freeze(perName("derived", derivedNames, i)),
+      }),
+    );
+  }
+  return Object.freeze({
+    seed: mc.seed,
+    paths: mc.paths,
+    percentiles: Object.freeze([...percentiles]),
+    labels: Object.freeze(labels),
+    rows: Object.freeze(rows),
+  });
+}
+
+const percentileCell = (
+  sample: Readonly<Record<string, number>> | undefined,
+  labels: readonly string[],
+  fmt: (n: number) => string,
+): string[] => labels.map((l) => (sample && l in sample ? fmt(sample[l]!) : "—"));
+
+// One column per stock × percentile (netWorth·p10, netWorth·p50, …). The
+// middle-dot separator keeps user names readable even when they contain
+// commas or spaces; CSV quoting covers the rest.
+export function formatPercentileTable(summary: PercentileSummary): string {
+  if (summary.rows.length === 0) return "";
+  const stockNames = new Set<string>();
+  const derivedNames = new Set<string>();
+  for (const r of summary.rows) {
+    for (const k of Object.keys(r.stocks)) stockNames.add(k);
+    for (const k of Object.keys(r.derived)) derivedNames.add(k);
+  }
+  const dated = summary.rows.some((r) => r.basis !== undefined);
+  const header = [
+    "t",
+    ...(dated ? ["date"] : []),
+    ...[...stockNames].flatMap((n) => summary.labels.map((l) => `${n}·${l}`)),
+    ...[...derivedNames].flatMap((n) => summary.labels.map((l) => `~${n}·${l}`)),
+  ];
+  const dateOf = (r: PercentileRow): string =>
+    r.basis === undefined
+      ? "—"
+      : formatCalDate(tickToMs(r.t, r.unit, r.basis, r.convention ?? DEFAULT_DAY_COUNT));
+  const rows = summary.rows.map((r) => [
+    String(r.t),
+    ...(dated ? [dateOf(r)] : []),
+    ...[...stockNames].flatMap((n) => percentileCell(r.stocks[n], summary.labels, fmt)),
+    ...[...derivedNames].flatMap((n) => percentileCell(r.derived[n], summary.labels, fmt)),
+  ]);
+  return aligned(header, rows);
+}
+
+export function formatPercentileCsv(summary: PercentileSummary): string {
+  if (summary.rows.length === 0) return "";
+  const stockNames = new Set<string>();
+  const derivedNames = new Set<string>();
+  for (const r of summary.rows) {
+    for (const k of Object.keys(r.stocks)) stockNames.add(k);
+    for (const k of Object.keys(r.derived)) derivedNames.add(k);
+  }
+  const dated = summary.rows.some((r) => r.basis !== undefined);
+  const cell = (sample: Readonly<Record<string, number>> | undefined, l: string): string =>
+    sample && l in sample ? String(sample[l]) : "";
+  const header = [
+    "t",
+    ...(dated ? ["date"] : []),
+    ...[...stockNames].flatMap((n) => summary.labels.map((l) => `${n}·${l}`)),
+    ...[...derivedNames].flatMap((n) => summary.labels.map((l) => `~${n}·${l}`)),
+  ].map(csvField);
+  const rows = summary.rows.map((r) =>
+    [
+      String(r.t),
+      ...(dated ? [r.basis === undefined ? "" : formatCalDate(tickToMs(r.t, r.unit, r.basis, r.convention ?? DEFAULT_DAY_COUNT))] : []),
+      ...[...stockNames].flatMap((n) => summary.labels.map((l) => cell(r.stocks[n], l))),
+      ...[...derivedNames].flatMap((n) => summary.labels.map((l) => cell(r.derived[n], l))),
+    ].join(","),
+  );
+  return [header.join(","), ...rows].join("\n");
 }

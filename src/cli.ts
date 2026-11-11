@@ -2,9 +2,18 @@
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fork, run } from "./core/fold.js";
+import { forkMonteCarlo, runPaths } from "./core/mc.js";
 import { DAY_COUNTS, isDayCount, isTickUnit, retickHorizon } from "./core/units.js";
 import type { Branch, DayCount, Horizon, Model, TickUnit } from "./core/types.js";
-import { formatCsv, formatDiff, formatFlows, formatTable } from "./outputs/table.js";
+import {
+  formatCsv,
+  formatDiff,
+  formatFlows,
+  formatPercentileCsv,
+  formatPercentileTable,
+  formatTable,
+  summarizeMonteCarlo,
+} from "./outputs/table.js";
 
 function usage(code: number): never {
   console.error(
@@ -22,6 +31,11 @@ function usage(code: number): never {
       "  --fork-at <t>    fork a what-if branch at tick t (from <variant>)",
       "  --variant <file> model file the branch continues with",
       "  --diff           also print the branch's per-tick delta vs the trunk",
+      "  --mc <paths>     Monte Carlo: fold <paths> stochastic paths and",
+      "                   print the percentile table instead of a single run",
+      "  --seed <n>       Monte Carlo seed (default 1; same seed, same paths)",
+      "  --percentiles <p> Monte Carlo percentiles, comma-separated",
+      "                   (default 10,50,90)",
       "",
       `units: second, minute, hour, day, week, month, quarter, year`,
     ].join("\n"),
@@ -38,6 +52,9 @@ let conventionOverride: DayCount | undefined;
 let end: number | undefined;
 let forkAt: number | undefined;
 let variantFile: string | undefined;
+let mcPaths: number | undefined;
+let mcSeed: number | undefined;
+let percentiles: number[] | undefined;
 const positional: string[] = [];
 
 for (let i = 0; i < args.length; i++) {
@@ -71,6 +88,33 @@ for (let i = 0; i < args.length; i++) {
   } else if (arg === "--variant") {
     variantFile = args[++i];
     if (!variantFile) usage(1);
+  } else if (arg === "--mc") {
+    const raw = args[++i];
+    mcPaths = raw === undefined ? Number.NaN : Number(raw);
+    if (!Number.isInteger(mcPaths) || mcPaths < 1) {
+      console.error("--mc requires a whole number of paths >= 1");
+      usage(1);
+    }
+  } else if (arg === "--seed") {
+    const raw = args[++i];
+    mcSeed = raw === undefined ? Number.NaN : Number(raw);
+    if (!Number.isInteger(mcSeed)) {
+      console.error("--seed requires an integer");
+      usage(1);
+    }
+  } else if (arg === "--percentiles") {
+    const raw = args[++i];
+    percentiles = (raw ?? "")
+      .split(",")
+      .filter((s) => s !== "")
+      .map(Number);
+    if (
+      percentiles.length === 0 ||
+      percentiles.some((p) => !Number.isFinite(p) || p < 0 || p > 100)
+    ) {
+      console.error(`--percentiles expects comma-separated values in 0..100 (got ${raw ?? "(missing)"})`);
+      usage(1);
+    }
   } else if (arg === "-h" || arg === "--help") usage(0);
   else if (arg.startsWith("-")) {
     console.error(`unknown option: ${arg}`);
@@ -82,6 +126,14 @@ const file = positional[0];
 if (!file || positional.length > 1) usage(1);
 if (forkAt !== undefined && !variantFile) {
   console.error("--fork-at requires --variant (the model the branch continues with)");
+  usage(1);
+}
+if (mcPaths !== undefined && flows) {
+  console.error("--flows shows per-tick deltas of a single deterministic run; drop it with --mc");
+  usage(1);
+}
+if (mcPaths !== undefined && diff) {
+  console.error("--diff is a single-path comparison; drop it with --mc");
   usage(1);
 }
 
@@ -142,6 +194,38 @@ if (unitOverride !== undefined || end !== undefined || conventionOverride !== un
     process.exit(1);
   }
   if (end !== undefined) horizon = { ...horizon, end };
+}
+
+// Monte Carlo mode: fold N seeded paths and print the percentile timeline
+// instead of a single history. Deterministic runs are untouched — this mode
+// only exists so stochastic constants get sampled.
+if (mcPaths !== undefined) {
+  const mc = runPaths(model, {
+    paths: mcPaths,
+    ...(mcSeed !== undefined ? { seed: mcSeed } : {}),
+    ...(horizon !== undefined ? { horizon } : {}),
+  });
+  const summary = summarizeMonteCarlo(mc, percentiles);
+  console.log(`monte carlo — ${mc.paths} paths × ${summary.rows.length - 1} ticks · seed ${mc.seed}`);
+  console.log(csv ? formatPercentileCsv(summary) : formatPercentileTable(summary));
+  if (forkAt !== undefined) {
+    const variant = await loadModel(variantFile!);
+    let branch: ReturnType<typeof forkMonteCarlo>;
+    try {
+      // Same-world continuation: inherit the already-run trunk's seed.
+      branch = forkMonteCarlo(mc, forkAt, variant, {});
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      process.exit(1);
+    }
+    const branchSummary = summarizeMonteCarlo(branch, percentiles);
+    console.log("");
+    console.log(
+      `branch '${basename(variantFile!)}' — forked at t=${forkAt}; each path continues its trunk path's shocks`,
+    );
+    console.log(csv ? formatPercentileCsv(branchSummary) : formatPercentileTable(branchSummary));
+  }
+  process.exit(0);
 }
 
 const history = run(model, horizon);

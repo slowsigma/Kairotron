@@ -3,6 +3,7 @@ import type {
   DayCount,
   DerivedContext,
   DerivedDef,
+  DistSpec,
   FlowRule,
   Guard,
   GuardedRule,
@@ -12,6 +13,7 @@ import type {
   Rule,
   ScheduledRule,
   SourceLocation,
+  StochasticValue,
   TickContext,
   TickUnit,
   TransferRule,
@@ -95,7 +97,9 @@ export function model(spec: ModelSpec): Model {
     seenDerived.add(def.name);
   }
   return {
-    horizon,
+    // Built-in readables are read-only: freeze the declared horizon so a rule
+    // can never mutate the model's time base between or during runs.
+    horizon: Object.isFrozen(horizon) ? horizon : Object.freeze({ ...horizon }),
     constants: spec.constants ?? {},
     stocks: spec.stocks,
     rules: spec.rules,
@@ -160,15 +164,75 @@ export function pct(percent: number, perUnit: TickUnit): Rate {
   return rate(percent / 100, perUnit);
 }
 
+// Monte Carlo overlay (plan.md §6: deterministic by default, stochastic is
+// opt-in). stochastic(base, dist) marks a rate constant as a random sequence;
+// rules keep reading it through c.perTick(name), which yields the base rate's
+// expected value in a deterministic run and a seeded realization per tick in
+// a Monte Carlo run. normal is additive noise around the base, scaled to the
+// tick by sqrt(tick/perUnit); uniform keeps its per-unit midpoint and scales
+// the band's half-width the same way, so reticking does not change the spread.
+export function normal(sd: Rate): DistSpec {
+  if (!isRateValue(sd)) {
+    throw new Error(`normal() requires a rate volatility, e.g. normal(pct(15, "year")) (got ${JSON.stringify(sd)})`);
+  }
+  if (!Number.isFinite(sd.value) || sd.value < 0) {
+    throw new Error(`normal() volatility must be a finite non-negative rate (got ${sd.value})`);
+  }
+  return { kind: "normal", sd };
+}
+
+export function uniform(low: Rate, high: Rate): DistSpec {
+  if (!isRateValue(low) || !isRateValue(high)) {
+    throw new Error(`uniform() requires rate bounds, e.g. uniform(pct(2, "year"), pct(9, "year"))`);
+  }
+  if (!Number.isFinite(low.value) || !Number.isFinite(high.value)) {
+    throw new Error(`uniform() bounds must be finite (got ${low.value}..${high.value})`);
+  }
+  if (low.value > high.value) {
+    throw new Error(`uniform() requires low <= high (got ${low.value} > ${high.value})`);
+  }
+  if (low.perUnit !== high.perUnit) {
+    throw new Error(
+      `uniform() bounds must share the same per-unit (got '${low.perUnit}' and '${high.perUnit}')`,
+    );
+  }
+  return { kind: "uniform", low, high };
+}
+
+export function stochastic(base: Rate, dist: DistSpec): StochasticValue {
+  if (!isRateValue(base)) {
+    throw new Error(`stochastic() requires a rate base, e.g. stochastic(pct(7, "year"), normal(pct(15, "year")))`);
+  }
+  if (!Number.isFinite(base.value)) {
+    throw new Error(`stochastic() base rate must be finite (got ${base.value})`);
+  }
+  if (!dist || (dist.kind !== "normal" && dist.kind !== "uniform")) {
+    throw new Error(`stochastic() dist must be normal(...) or uniform(...) (got ${JSON.stringify(dist)})`);
+  }
+  return { kind: "stochastic", base, dist };
+}
+
+function isRateValue(v: unknown): v is Rate {
+  return typeof v === "object" && v !== null && (v as { kind?: string }).kind === "rate";
+}
+
 // `when` does double duty, by shape (plan.md §Core semantics):
 // - when(guard, rule)   — gating (milestone 2)
-// - when(t, unit, basis) — the calendar overlay (milestone 7): a tick rendered
-//   as a read-only CalendarDate for date gating/display. `basis` is a
-//   date("...") timestamp (typically horizon.basis); `convention` is the
-//   model's day count (default "actual/365" — a basis without a declared
-//   convention means the civil calendar).
+// - when(t, unit, basis, convention) — the calendar overlay (milestone 7): a
+//   tick rendered as a read-only CalendarDate for date gating/display.
+//   `basis` is a date("...") timestamp (typically horizon.basis) and
+//   `convention` is the model's day count. The convention is required: the
+//   free function cannot see the model, and silently assuming actual/365
+//   would make date gating disagree with a 30/360 fold. Inside a rule,
+//   `c.when(t)` / `c.date(t)` are bound to the fold's own horizon and are the
+//   safer idiom.
 export function when(cond: Guard, rule: Rule): GuardedRule;
-export function when(t: number, unit: TickUnit, basis: number, convention?: DayCount): CalendarDate;
+export function when(
+  t: number,
+  unit: TickUnit,
+  basis: number,
+  convention: DayCount,
+): CalendarDate;
 export function when(
   a: Guard | number,
   b: Rule | TickUnit,
@@ -181,7 +245,13 @@ export function when(
         `when(t, unit, basis): unknown tick unit '${String(b)}' (expected one of: ${TICK_UNITS.join(", ")})`,
       );
     }
-    if (convention !== undefined && !isDayCount(convention)) {
+    if (convention === undefined) {
+      throw new Error(
+        `when(t, unit, basis, convention): pass the model's day-count convention explicitly ` +
+          `(e.g. when(t, unit, basis, c.horizon.convention)), or use the bound c.when(t) / c.date(t)`,
+      );
+    }
+    if (!isDayCount(convention)) {
       throw new Error(
         `when(): unknown day-count convention '${convention}' (expected one of: ${DAY_COUNTS.join(", ")})`,
       );

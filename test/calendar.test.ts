@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calDate,
   formatCalDate,
+  msToTick,
   parseDate,
   tickToMs,
   whenDate,
@@ -72,6 +73,15 @@ describe("tickToMs — civil stepping (actual/365 with a basis)", () => {
 });
 
 describe("tickToMs — 30/360 notional months", () => {
+  it("anchors tick 0 at the declared basis, even on the 31st", () => {
+    expect(tickToMs(0, "month", jan31_2000, "30/360")).toBe(jan31_2000);
+    expect(tickToMs(0, "quarter", jan31_2000, "30/360")).toBe(jan31_2000);
+    expect(tickToMs(0, "year", jan31_2000, "30/360")).toBe(jan31_2000);
+    expect(whenDate(0, "month", jan31_2000, "30/360").iso).toBe("2000-01-31");
+    expect(msToTick(jan31_2000, "month", jan31_2000, "30/360")).toBe(0);
+    expect(msToTick(jan31_2000, "year", jan31_2000, "30/360")).toBe(0);
+  });
+
   it("anchors the day-of-month at 30 before stepping", () => {
     // 31 Jan → Feb 30 doesn't exist even notionally, so it clamps to month end;
     // from March on the anchor sits at 30, never reaching the 31st
@@ -132,17 +142,41 @@ describe("when() in the DSL — gating on civil dates", () => {
     stocks: { pot: 0 },
     rules: [
       // the plan.md idiom: gate a rule on a date computed from t + basis
-      when((c) => when(c.t, "month", c.horizon.basis!).year >= 2001, flow("pot", 10, "new century")),
+      when((c) => c.when().year >= 2001, flow("pot", 10, "new century")),
     ],
   });
 
-  it("when(t, unit, basis) returns a CalendarDate for both overloads' callers", () => {
-    expect(when(1, "month", jan31_2000).iso).toBe("2000-02-29");
+  it("when(t, unit, basis, convention) returns a CalendarDate", () => {
+    expect(when(1, "month", jan31_2000, "actual/365").iso).toBe("2000-02-29");
     expect(when(2, "month", jan31_2000, "30/360").iso).toBe("2000-03-30");
-    expect(() => when(1, "fortnight" as TickUnit, jan31_2000)).toThrow(/unknown tick unit 'fortnight'/);
+    expect(() => when(1, "fortnight" as TickUnit, jan31_2000, "actual/365")).toThrow(
+      /unknown tick unit 'fortnight'/,
+    );
     expect(() => when(1, "month", jan31_2000, "act/360" as "actual/365")).toThrow(
       /unknown day-count convention/,
     );
+    // the convention is mandatory: the free function cannot see the model
+    // @ts-expect-error — three arguments are a compile error as well as a runtime one
+    expect(() => when(1, "month", jan31_2000)).toThrow(/pass the model's day-count convention/);
+  });
+
+  it("c.when()/c.date() agree with the free when(...) under 30/360", () => {
+    let byCtx: ReturnType<TickContext["when"]> | undefined;
+    let byFree: ReturnType<TickContext["when"]> | undefined;
+    const m = model({
+      horizon: { start: 0, end: 2, unit: "month", convention: "30/360", basis: jan31_2000 },
+      stocks: { pot: 0 },
+      rules: [
+        flow("pot", (c) => {
+          byCtx = c.when();
+          byFree = when(c.t, c.horizon.unit, c.horizon.basis!, c.horizon.convention!);
+          return 1;
+        }, "probe"),
+      ],
+    });
+    run(m);
+    expect(byCtx!.iso).toBe("2000-03-30");
+    expect(byFree!.iso).toBe(byCtx!.iso);
   });
 
   it("gates fire on civil dates: t=1..11 stay in 2000, t=12 crosses into 2001", () => {

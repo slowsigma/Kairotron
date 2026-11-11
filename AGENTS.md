@@ -22,13 +22,15 @@ Companion research: `docs/Concept-Search.md` (domain math),
 - **Fold**: `s_t = step(s_{t-1}, t, params)`; history is `[S0, S1, ... SN]`,
   finite horizon only — no infinite looping.
 - **Abstract time is the default**: ticks are plain numbers; a calendar basis is
-  a display/gating overlay (`when(t, tickUnit, basis)`), never engine semantics.
+  a display/gating overlay (`c.when(t)` / `when(t, tickUnit, basis, convention)`),
+  never engine semantics.
   The basis is `horizon.basis = date("YYYY-MM-DD")` (epoch-ms UTC), requires a
   calendar convention (`actual/365`/`30/360`, never `abstract`), anchors tick 0,
   and survives re-ticks and forks (a branch inherits the trunk's). Month/quarter/
   year ticks step the civil calendar with day-of-month clamping (leap-true;
   30/360 anchors at day 30); other units convert through the ratio table. Rules
-  gate via `c.date()` or the `when(t, unit, basis)` overload; snapshots carry
+  gate via `c.date()` / `c.when(t)` or the `when(t, unit, basis, convention)`
+  overload; snapshots carry
   `basis` so tables/CSV gain a `date` column and chart axes get calendar labels.
 - **Units are semantics**: every rate carries `(value, perUnit)`; the engine
   normalizes rates to the tick unit at run time. Changing the tick unit can
@@ -61,10 +63,18 @@ Companion research: `docs/Concept-Search.md` (domain math),
 6. Tick re-normalization + day-count conventions (`DayCount` on the horizon,
    duration-preserving `retickHorizon`, cross-unit forks with a duration-mapped
    sparse prefix and hold-last lag) ✓ done
-7. Calendar overlay (`horizon.basis` + `date()`, `when(t, unit, basis)` / `c.date()`
+7. Calendar overlay (`horizon.basis` + `date()`, `c.when(t)` / `c.date()` and the
+   free `when(t, unit, basis, convention)`
    gating, civil tick↔date conversion with leap-true clamping, date column &
    calendar axes; basis survives re-ticks and forks) ✓ done
-8. Monte Carlo mode ← current
+8. Monte Carlo mode — stochastic rate sequences (`stochastic(pct(7,"year"),
+   normal(pct(15,"year")))` / `uniform(low,high)`), seeded reproducible paths
+   (`runPaths`, same seed = same paths), sqrt-time volatility scaling (tick
+   granularity doesn't change the spread, normal or uniform), same-world forks
+   (`forkMonteCarlo`: each branch path replays its trunk path's draws; the
+   branch must keep the trunk's tick grid), percentile output
+   (`summarizeMonteCarlo`, `·pXX` tables/CSV), worker pool + percentile bands
+   in the browser REPL, `--mc/--seed/--percentiles` in the CLI ✓ done
 
 ## Conventions
 
@@ -77,5 +87,8 @@ Companion research: `docs/Concept-Search.md` (domain math),
 - Browser REPL lives in `web/` (Vite + vanilla TS, zero runtime deps; the engine
   is imported unchanged and stays UI-free). Model code runs via `new Function`
   with the DSL in scope; provenance line-mapping is calibrated at compile time.
+  Monte Carlo path folds run on a Vite module-worker pool (`mc-pool.ts` +
+  `mc-worker.ts`) with a sequential fallback where `Worker` is unavailable.
   `npm run dev` serves it, `npm run build` bundles it, UI wiring is smoke-tested
-  under jsdom (`test/ui-smoke.test.ts`).
+  under jsdom (`test/ui-smoke.test.ts`, Monte Carlo in `test/ui-mc.test.ts`;
+  the pool protocol is covered by `test/mc-pool.test.ts` with a stubbed Worker).
