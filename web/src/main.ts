@@ -616,10 +616,11 @@ function download(name: string, text: string, mime: string): void {
 }
 
 // ---- Shareable model URLs (plan.md's "later") ------------------------------
-// The URL carries the trunk's *last-run* code (what the timeline actually is),
-// the raw horizon/mc control values, the playhead, and each branch's fork tick
-// plus buffer. Branches are shared as forks, not histories: the link replays
-// them on load, exactly like re-forking after a trunk edit.
+// The URL carries the trunk's *last-run* code and horizon (what the timeline
+// actually is), the raw mc control values, the playhead, and each branch's
+// fork tick, buffer, and own horizon when re-ticked. Branches are shared as
+// forks, not histories: the link replays them on load, exactly like re-forking
+// after a trunk edit.
 
 function rawVal(id: string): string {
   return ($(id) as unknown as HTMLInputElement).value.trim();
@@ -655,17 +656,24 @@ function sameHorizon(a: Horizon, b: Horizon): boolean {
 
 // The saveable core: trunk code + the raw horizon/mc control values. Un-run
 // edits on the trunk are worth keeping; on a branch the buffer is the last-run
-// one, since a scenario is folded as a fresh trunk.
+// one, since a scenario is folded as a fresh trunk. Likewise, a branch's
+// re-ticked toolbars must not leak into the saved horizon — save the trunk's
+// actual one instead.
 function collectScenario(): ScenarioPayload {
+  const th = trunk();
   const horizon: NonNullable<SharePayload["horizon"]> = {};
-  for (const [k, id] of [
-    ["start", "h-start"],
-    ["end", "h-end"],
-    ["unit", "h-unit"],
-    ["convention", "h-convention"],
-  ] as const) {
-    const v = rawVal(id);
-    if (v) horizon[k] = v;
+  if (state.active === 0 || th.history.length === 0) {
+    for (const [k, id] of [
+      ["start", "h-start"],
+      ["end", "h-end"],
+      ["unit", "h-unit"],
+      ["convention", "h-convention"],
+    ] as const) {
+      const v = rawVal(id);
+      if (v) horizon[k] = v;
+    }
+  } else {
+    Object.assign(horizon, controlsOfHorizon(th.horizon));
   }
   const mc: NonNullable<SharePayload["mc"]> = {};
   const paths = rawVal("mc-paths");

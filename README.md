@@ -243,11 +243,12 @@ report the tick's distribution instead of a point. Fork a branch with paths on
 and each branch path continues its trunk path's shocks — a same-world what-if.
 Leave the field empty and everything is the deterministic expected-value run.
 
-**Share** puts the session in the URL: the trunk's model code, the horizon and
-Monte Carlo controls, the playhead, and each branch's fork tick and buffer —
-deflate-compressed into one query parameter (with an uncompressed fallback), no
-server involved. Opening the link folds the trunk, re-forks the branches, and
-lands the playhead where you left it.
+**Share** puts the session in the URL: the trunk's last-run model code and
+horizon, the Monte Carlo controls, the playhead, and each branch's fork tick,
+buffer, and own horizon when re-ticked — deflate-compressed into one query
+parameter (with an uncompressed fallback), no server involved. Opening the link
+folds the trunk, re-forks the branches, and lands the playhead where you left
+it.
 
 **💾 Save** keeps scenario sets in `localStorage`: named model variants (code +
 horizon/MC controls) grouped into sets — *retirement / aggressive, cautious, …*
