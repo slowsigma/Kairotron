@@ -165,6 +165,97 @@ depend on the time mode: plain tick numbers by default, calendar labels from
 6. **Tick re-normalization**: change tick unit on the same model; day-count conventions.
 7. **Calendar overlay**: basis constant + `c.when(t)` / `when(t, tickUnit, basis, convention)` for display, gating on dates, and validated tick↔calendar conversion (leap years, 30/360 vs actual).
 8. **Monte Carlo mode**: random rate sequences, worker pool, percentile output (visualization gains percentile bands over the timeline).
+9. **Polished documentation**: a public docs set — concepts, a getting-started tutorial, DSL/CLI/API references, cookbook, and troubleshooting — published as a searchable static site, with examples kept executable in CI.
+
+## Documentation plan (milestone 9)
+
+Goal: someone can go from "what is this?" to a running, branched, exported
+model without reading the source, and can look up every DSL construct, CLI flag,
+and UI control. The README stays a concise landing page that points into the
+docs.
+
+### Audiences
+
+- **Learn** — newcomers who need the mental model and one successful run.
+- **Reference** — model authors who need exact semantics for a construct.
+- **Build/extend** — users embedding the engine and contributors extending it.
+
+### Required content
+
+1. **Concepts / mental model** — the model as a pure step function, the finite
+   fold, immutable snapshots, stocks vs flows vs derived values vs constants,
+   ticks and units, basis/calendar as a display-and-gating overlay, provenance,
+   branches, deterministic vs Monte Carlo, share sessions vs saved scenarios,
+   and the domain-agnostic purity boundary. Use diagrams for the fold and the
+   stock-and-flow view.
+2. **Getting-started tutorial** — a short copy-paste path from a clean checkout:
+   run an example in the CLI, open the browser REPL, read the chart and table,
+   scrub, edit and re-run, re-tick, fork a branch, enable Monte Carlo, export,
+   and share/save. Include "common first errors" and clear next steps.
+3. **DSL reference** — the core of the docs:
+   - model shape (`horizon`, `constants`, `stocks`, `rules`, `derived`);
+   - values and rates (`rate`, `pct`, `stochastic`, `normal`, `uniform`);
+   - rules (`flow`, `transfer`, `when`, `unless`, `every`, `once`, `between`,
+     `lagged`, `laggedDelta`);
+   - calendar values (`date`, `horizon.basis`, `c.date()` / `c.when()`, the free
+     `when(t, unit, basis, convention)`);
+   - rule context (`c.t`, `c.stocks`, `c.constants`, `c.horizon`, `c.perTick`,
+     `c.lag`, `c.tickUnit`, `c.date`, `c.when`);
+   - unit normalization, retick semantics, validation errors, reserved names,
+     and how source locations drive highlighting.
+   - A compact quick-reference table plus exhaustive per-construct pages with
+     signatures, semantics, and runnable examples.
+4. **CLI reference** — every flag (`--csv`, `--flows`, `--unit`, `--end`,
+   `--convention`, `--fork-at`, `--variant`, `--diff`, `--mc`, `--seed`,
+   `--percentiles`), model-file loading, the TS loader, exit codes, and error
+   behavior.
+5. **Browser REPL guide** — toolbar and editor shortcuts, chart modes and
+   legends, scrubber, inspector/table tabs, branching and Δ-vs-trunk, Monte
+   Carlo bands, share URLs, scenario sets, and exports.
+6. **Outputs/export reference** — table, CSV, and JSON shapes; percentile
+   columns; branch vs trunk fields; what is and isn't included in Monte Carlo
+   exports.
+7. **Tick units & calendar guide** — the unit table, rate re-normalization,
+   duration-preserving re-ticks, explicit start/end overrides, day-count
+   conventions, leap-year and 30/360 behavior, and how basis survives re-ticks
+   and forks.
+8. **Branches & what-if guide** — forking, divergent code, same-world Monte
+   Carlo forks, cross-unit sparse prefixes and hold-last semantics, sharing and
+   replay.
+9. **Monte Carlo guide** — stochastic rate sequences, seed reproducibility,
+   raw paths vs percentile summaries, worker-pool behavior, and cost guidance.
+10. **Cookbook / recipes** — domain-neutral patterns with runnable models:
+    compound growth, reservoirs, SIR, dosing, supply chains, gating windows,
+    one-shot and recurring events, delays, and derived ratios.
+11. **Embedding / API guide** — importing the pure engine and DSL, the `Model`,
+    `Horizon`, and `Snapshot` shapes, `run`/`fold`/`fork`/`retickHorizon`/
+    Monte Carlo entry points, and building custom outputs without the DOM.
+12. **Troubleshooting / FAQ** — an error catalog with likely causes and fixes,
+    including missing horizons, unknown units/conventions, invalid MC inputs,
+    failed shared links, and conflicting model edits.
+13. **Glossary** — fold, tick, horizon, basis, convention, stock, flow, derived,
+    provenance, branch, path, percentile, scenario, share session.
+14. **Contributor / architecture guide** — repo layout, the purity boundary,
+    test strategy, how to add a DSL construct, and how provenance line mapping
+    works.
+
+### Delivery and quality
+
+- Build a static docs site (e.g. VitePress or Starlight) with search,
+  navigation, mobile layout, and light/dark themes; host it alongside the demo
+  and link it from the README, app, and npm package.
+- Keep one source of truth for examples: extract code blocks and run/typecheck
+  them in CI so documentation cannot drift from the engine.
+- Generate API reference pages from exported TypeScript types where practical;
+  hand-write the conceptual and tutorial pages.
+- Use screenshots/GIFs captured from the real app, not mockups.
+- Add docs build and link checking to CI, and version the site once the public
+  API settles.
+- Definition of done: the clean-checkout tutorial works end to end; every DSL
+  construct, CLI flag, UI control, and export shape is documented; all examples
+  compile; the docs build, links, and screenshots are current; and a newcomer
+  can complete the tutorial without help.
+
 
 ## Naming
 

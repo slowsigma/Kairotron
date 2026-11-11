@@ -75,6 +75,9 @@ Companion research: `docs/Concept-Search.md` (domain math),
    branch must keep the trunk's tick grid), percentile output
    (`summarizeMonteCarlo`, `·pXX` tables/CSV), worker pool + percentile bands
    in the browser REPL, `--mc/--seed/--percentiles` in the CLI ✓ done
+9. Polished documentation — concepts, getting-started tutorial, DSL/CLI/API
+   references, cookbook, troubleshooting, and a searchable hosted docs site with
+   examples verified in CI. Not started (see plan.md's documentation section).
 
 ## Conventions
 
