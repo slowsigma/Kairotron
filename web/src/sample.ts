@@ -14,7 +14,7 @@ model({
   },
   stocks: { preTax: 40000, cash: 8000 },
   rules: [
-    flow("preTax", (c) => c.perTick("contribution"), "contribution"),
+    when((c) => c.t <= 25, flow("preTax", (c) => c.perTick("contribution"), "contribution")),
     flow("preTax", (c) => c.stocks.preTax * c.perTick("growth"), "growth"),
     flow("cash", (c) => c.perTick("salaryDivert"), "salary divert"),
     flow("cash", (c) => c.stocks.cash * c.perTick("cashYield"), "interest"),
