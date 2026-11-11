@@ -100,4 +100,40 @@ describe("saved scenario sets (jsdom)", () => {
     el("#scen-del").click();
     expect(el("#status").textContent).toBe("select a saved scenario to delete");
   });
+
+  it("loading a scenario from a branch returns to the trunk and drops branches", async () => {
+    el("#scen-save").click();
+    (input("save-name") as HTMLInputElement).value = "branch source";
+    el("#save-ok").click();
+    expect(el("#status").textContent).toBe("saved default · branch source");
+
+    el("#fork").click();
+    expect(doc().querySelectorAll("#branchbar .chip")).toHaveLength(2);
+
+    const sel = input("scenario") as HTMLSelectElement;
+    sel.value = "0:0";
+    sel.dispatchEvent(new dom.window.Event("change"));
+    await vi.waitFor(() => expect(el("#status").textContent).toBe("loaded default · branch source"));
+
+    expect(doc().querySelectorAll("#branchbar .chip")).toHaveLength(1);
+    expect(doc().querySelector("#branchbar .chip.active")?.textContent).toBe("main");
+    expect(el("#branchbar").hidden).toBe(true);
+  });
+
+  it("a scenario whose model fails to fold keeps the error status", async () => {
+    buffer().value = "model({ nope: true })";
+    el("#scen-save").click();
+    (input("save-name") as HTMLInputElement).value = "broken";
+    el("#save-ok").click();
+    expect(el("#status").textContent).toBe("saved default · broken");
+
+    const sel = input("scenario") as HTMLSelectElement;
+    sel.value = "0:1";
+    sel.dispatchEvent(new dom.window.Event("change"));
+    await vi.waitFor(() => expect(el("#status").textContent).toMatch(/model code failed|model requires a horizon/));
+    expect(el("#status").classList.contains("err")).toBe(true);
+    expect(el("#status").textContent).not.toMatch(/^loaded /);
+    // the failed load still resets to a lone trunk
+    expect(doc().querySelectorAll("#branchbar .chip")).toHaveLength(1);
+  });
 });

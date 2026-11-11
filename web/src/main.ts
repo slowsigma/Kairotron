@@ -36,6 +36,8 @@ import {
   decodeShareParam,
   encodeShareParam,
   readShareParam,
+  type ShareBranch,
+  type ShareHorizon,
   type SharePayload,
 } from "./share.js";
 import {
@@ -623,9 +625,37 @@ function rawVal(id: string): string {
   return ($(id) as unknown as HTMLInputElement).value.trim();
 }
 
-// The shareable/saveable core: trunk code + the raw horizon/mc control values.
-// Un-run edits on the trunk are worth keeping; on a branch the buffer is the
-// last-run one, since both consumers rebuild from runs.
+// Write the toolbar's horizon inputs. Absent fields clear to "auto".
+function writeHorizonControls(h: ShareHorizon | undefined): void {
+  const set = (id: string, v: string | undefined): void => {
+    ($(id) as unknown as HTMLInputElement).value = v ?? "";
+  };
+  set("h-start", h?.start);
+  set("h-end", h?.end);
+  set("h-unit", h?.unit);
+  set("h-convention", h?.convention);
+}
+
+// A concrete horizon as control values: explicit start/end reproduce the last
+// run exactly (no duration-preserving re-tick), which is what shared links need.
+function controlsOfHorizon(h: Horizon): ShareHorizon {
+  const out: ShareHorizon = { start: String(h.start), end: String(h.end), unit: h.unit };
+  if (h.convention !== undefined) out.convention = h.convention;
+  return out;
+}
+
+function sameHorizon(a: Horizon, b: Horizon): boolean {
+  return (
+    a.start === b.start &&
+    a.end === b.end &&
+    a.unit === b.unit &&
+    (a.convention ?? "") === (b.convention ?? "")
+  );
+}
+
+// The saveable core: trunk code + the raw horizon/mc control values. Un-run
+// edits on the trunk are worth keeping; on a branch the buffer is the last-run
+// one, since a scenario is folded as a fresh trunk.
 function collectScenario(): ScenarioPayload {
   const horizon: NonNullable<SharePayload["horizon"]> = {};
   for (const [k, id] of [
@@ -649,12 +679,33 @@ function collectScenario(): ScenarioPayload {
 }
 
 function collectShare(): SharePayload {
-  const share: SharePayload = { ...collectScenario(), playhead: state.playhead };
+  const scenario = collectScenario();
+  const th = trunk();
+  const share: SharePayload = { code: scenario.code };
+  // Reconstruct the trunk as it actually last ran. Raw toolbar values can be a
+  // branch's re-ticked unit (the controls are global) or un-run edits, either
+  // of which would invalidate the branch fork ticks below.
+  if (th.history.length > 0) share.horizon = controlsOfHorizon(th.horizon);
+  else if (scenario.horizon) share.horizon = scenario.horizon;
+  if (scenario.mc) share.mc = scenario.mc;
+  // The playhead is stored as a trunk tick so it lands on the reconstructed
+  // trunk. On a re-ticked branch it must be mapped by moment, not copied.
+  if (state.active === 0) {
+    share.playhead = state.playhead;
+  } else {
+    const t = trunkTickAtPlayhead();
+    if (t !== undefined) share.playhead = t;
+    else if (th.history.length > 0) share.playhead = th.history[th.history.length - 1]!.t;
+  }
   // Branches are shared as forks, not histories: the link replays them on
-  // load, exactly like re-forking after a trunk edit.
-  const branches = state.branches
-    .slice(1)
-    .flatMap((b) => (b.forkT === undefined ? [] : [{ forkT: b.forkT, code: b.code }]));
+  // load, exactly like re-forking after a trunk edit. A branch keeps its own
+  // controls only when they differ from the trunk's (a cross-unit re-tick).
+  const branches = state.branches.slice(1).flatMap((b): ShareBranch[] => {
+    if (b.forkT === undefined) return [];
+    const out: ShareBranch = { forkT: b.forkT, code: b.code };
+    if (!sameHorizon(b.horizon, th.horizon)) out.horizon = controlsOfHorizon(b.horizon);
+    return [out];
+  });
   if (branches.length) share.branches = branches;
   return share;
 }
@@ -686,16 +737,23 @@ async function shareNow(): Promise<void> {
 function applySession(p: SharePayload): void {
   editor.text = p.code;
   trunk().code = p.code;
+  writeHorizonControls(p.horizon);
   const set = (id: string, v: string | undefined): void => {
     ($(id) as unknown as HTMLInputElement).value = v ?? "";
   };
-  set("h-start", p.horizon?.start);
-  set("h-end", p.horizon?.end);
-  set("h-unit", p.horizon?.unit);
-  set("h-convention", p.horizon?.convention);
   set("mc-paths", p.mc?.paths);
   set("mc-seed", p.mc?.seed);
   state.playhead = p.playhead ?? 0;
+}
+
+// A scenario is a fresh trunk: the previous branch set belongs to the old
+// model, so drop it instead of re-forking unrelated what-ifs onto the new one.
+function resetToTrunk(): void {
+  const main = trunk();
+  state.branches = [main];
+  state.active = 0;
+  nextBranchId = 1;
+  renderBranchBar();
 }
 
 // Fork + run each shared branch against the freshly folded trunk. A branch
@@ -704,10 +762,13 @@ function applySession(p: SharePayload): void {
 async function replaySharedBranches(p: SharePayload): Promise<{ loaded: number; failed: number }> {
   let loaded = 0;
   let failed = 0;
+  let replayed = false;
+  const playhead = p.playhead ?? 0;
   for (const b of p.branches ?? []) {
     const th = trunk();
     const idx = th.history.findIndex((s) => s.t === b.forkT);
     if (idx === -1) continue;
+    replayed = true;
     const id = nextBranchId++;
     state.branches.push({
       id,
@@ -722,10 +783,19 @@ async function replaySharedBranches(p: SharePayload): Promise<{ loaded: number; 
     tabBody.innerHTML = "";
     renderBranchBar();
     editor.text = b.code;
+    // A branch only carries controls when it was re-ticked; otherwise it
+    // inherits the trunk's. Restored after the replay loop.
+    writeHorizonControls(b.horizon ?? p.horizon);
     // A fork at the trunk's final tick legitimately folds zero new snapshots,
     // so trust runNow's verdict, not the history length.
     if (await runNow()) loaded++;
     else failed++; // error status is left up; the chip keeps the shared prefix
+  }
+  if (replayed) {
+    writeHorizonControls(p.horizon);
+    // runNow parks the playhead against each branch's tick grid; restore the
+    // shared trunk tick before activating the trunk.
+    state.playhead = playhead;
   }
   if (p.branches?.length) activate(0);
   return { loaded, failed };
@@ -743,10 +813,16 @@ async function bootstrap(): Promise<void> {
     }
   }
   if (shared) applySession(shared);
-  await runNow();
+  const trunkOk = await runNow();
   // runNow's status is a fold summary; the link's own verdict must survive it.
   if (badLink !== undefined) setStatus(`bad share link: ${badLink} — started from the sample`, true);
   if (!shared) return;
+  if (!trunkOk) {
+    // A model that cannot fold has no trunk to replay branches against; keep
+    // the compile/fold error instead of claiming the share loaded.
+    setStatus(`shared link failed — ${statusEl.textContent}`, true);
+    return;
+  }
   const { loaded, failed } = await replaySharedBranches(shared);
   const note = loaded ? ` · ${loaded} branch${loaded === 1 ? "" : "es"}` : "";
   setStatus(`shared model loaded${note}${failed ? ` · ${failed} branch${failed === 1 ? "" : "es"} failed` : ""}`, failed > 0);
@@ -796,8 +872,9 @@ async function loadScenario(): Promise<void> {
   const set = scenarioSets[si];
   const scen = set?.scenarios[ci];
   if (!set || !scen) return;
+  resetToTrunk();
   applySession(scen.payload);
-  await runNow();
+  if (!(await runNow())) return; // keep the fold error, don't claim success
   setStatus(`loaded ${set.name} · ${scen.name}`);
 }
 

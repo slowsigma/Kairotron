@@ -63,6 +63,20 @@ describe("share URL codec", () => {
     await expect(decodeShareParam(notJson)).rejects.toThrow(/not decode to JSON/);
   });
 
+  it("round-trips per-branch horizons from cross-unit shares", async () => {
+    const payload: SharePayload = {
+      code: "model({a})",
+      branches: [
+        {
+          forkT: 6,
+          code: "model({b})",
+          horizon: { start: "0", end: "240", unit: "month", convention: "actual/365" },
+        },
+      ],
+    };
+    expect(await decodeShareParam(await encodeShareParam(payload))).toEqual(payload);
+  });
+
   it("skips malformed branches instead of failing the whole link", async () => {
     const raw = {
       code: "model({})",

@@ -10,12 +10,27 @@
 
 export const SHARE_PARAM = "m";
 
+// Raw horizon-control values (the toolbar inputs), absent = auto. On a branch
+// these are the branch's own tick unit, so share branches carry their own copy.
+export interface ShareHorizon {
+  start?: string;
+  end?: string;
+  unit?: string;
+  convention?: string;
+}
+
+export interface ShareBranch {
+  forkT: number; // trunk tick
+  code: string;
+  horizon?: ShareHorizon; // only when it differs from the trunk's
+}
+
 export interface SharePayload {
   code: string; // trunk editor buffer (the last-run code)
-  horizon?: { start?: string; end?: string; unit?: string; convention?: string }; // raw input values, absent = auto
+  horizon?: ShareHorizon; // trunk horizon/control values, absent = auto
   mc?: { paths?: string; seed?: string }; // raw input values, absent = deterministic
-  playhead?: number;
-  branches?: { forkT: number; code: string }[];
+  playhead?: number; // trunk tick
+  branches?: ShareBranch[];
 }
 
 const canDeflate = (): boolean =>
@@ -111,19 +126,21 @@ export function validatePayload(raw: unknown): SharePayload {
     for (const k of keys) if (typeof src[k] === "string" && src[k] !== "") out[k] = src[k] as string;
     return Object.keys(out).length ? out : undefined;
   };
-  const horizon = strings(o.horizon, ["start", "end", "unit", "convention"]) as SharePayload["horizon"];
+  const horizon = strings(o.horizon, ["start", "end", "unit", "convention"]) as ShareHorizon | undefined;
   const mc = strings(o.mc, ["paths", "seed"]) as SharePayload["mc"];
   const playhead =
     typeof o.playhead === "number" && Number.isFinite(o.playhead) && o.playhead >= 0
       ? Math.floor(o.playhead)
       : undefined;
   const branches = Array.isArray(o.branches)
-    ? o.branches.flatMap((b) => {
+    ? o.branches.flatMap((b): ShareBranch[] => {
         if (!b || typeof b !== "object") return [];
         const { forkT, code } = b as Record<string, unknown>;
-        return typeof forkT === "number" && Number.isFinite(forkT) && typeof code === "string"
-          ? [{ forkT, code }]
-          : [];
+        if (typeof forkT !== "number" || !Number.isFinite(forkT) || typeof code !== "string") return [];
+        const out: ShareBranch = { forkT, code };
+        const bh = strings((b as Record<string, unknown>).horizon, ["start", "end", "unit", "convention"]);
+        if (bh) out.horizon = bh;
+        return [out];
       })
     : undefined;
   // exactOptionalPropertyTypes: optional fields stay absent, never undefined

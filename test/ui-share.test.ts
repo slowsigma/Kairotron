@@ -69,7 +69,8 @@ describe("shareable model URL (jsdom)", () => {
     expect(param).toBeDefined();
     const back = await decodeShareParam(param!);
     expect(back.code).toContain("rate(4200");
-    expect(back.horizon).toEqual({ unit: "month" });
+    // The reconstructed trunk is stored explicitly (exact ticks, not "auto")
+    expect(back.horizon).toEqual({ start: "0", end: "480", unit: "month", convention: "actual/365" });
     expect(back.playhead).toBe(PLAYHEAD);
     expect(back.branches).toEqual([{ forkT: FORK_T, code: BRANCH_CODE }]);
   });
