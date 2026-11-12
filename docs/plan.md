@@ -169,6 +169,17 @@ depend on the time mode: plain tick numbers by default, calendar labels from
 
 ## Documentation plan (milestone 9)
 
+> **Status: done.** The docs set ships as a VitePress site in `docs/` (design
+> notes excluded from the build). Concepts, tutorial, DSL/mini-notation/CLI/
+> outputs references, all guides, cookbook, embedding, troubleshooting,
+> glossary, and the contributor guide are in place; search and light/dark come
+> with the theme. Example blocks tagged ` ```ts run ` are extracted, executed,
+> and strictly typechecked by `scripts/check-doc-examples.ts`; internal page
+> links fail the site build and internal anchors fail `docs:examples`
+> (VitePress only checks pages). `npm run docs:check` runs both, and CI calls
+> it. Remaining polish is deploy-side: hosting the built site next to the
+> demo, and app-side links to it once both have public URLs.
+
 Goal: someone can go from "what is this?" to a running, branched, exported
 model without reading the source, and can look up every DSL construct, CLI flag,
 and UI control. The README stays a concise landing page that points into the

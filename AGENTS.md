@@ -75,9 +75,17 @@ Companion research: `docs/Concept-Search.md` (domain math),
    branch must keep the trunk's tick grid), percentile output
    (`summarizeMonteCarlo`, `·pXX` tables/CSV), worker pool + percentile bands
    in the browser REPL, `--mc/--seed/--percentiles` in the CLI ✓ done
-9. Polished documentation — concepts, getting-started tutorial, DSL/CLI/API
-   references, cookbook, troubleshooting, and a searchable hosted docs site with
-   examples verified in CI. Not started (see plan.md's documentation section).
+9. Polished documentation — VitePress docs set in `docs/` (concepts,
+   getting-started, browser-REPL/units-calendar/branches/Monte Carlo guides,
+   DSL + mini-notation + CLI + outputs references, cookbook, embedding,
+   troubleshooting, glossary, contributor guide; local search + light/dark).
+   Fenced blocks tagged ` ```ts run ` are self-checking programs extracted by
+   `scripts/check-doc-examples.ts`, imported/executed under tsx (the
+   `kairotron` tsconfig path maps to `src/index.ts`) and then typechecked with
+   the project's strict settings; the same script also validates internal
+   links and heading anchors (VitePress only checks pages). `npm run docs:dev`
+   serves it, `npm run docs:check` (examples + site build incl. dead-page
+   check) runs in CI alongside typecheck and vitest. ✓ done
 
 ## Conventions
 
@@ -95,6 +103,12 @@ Companion research: `docs/Concept-Search.md` (domain math),
   `npm run dev` serves it, `npm run build` bundles it, UI wiring is smoke-tested
   under jsdom (`test/ui-smoke.test.ts`, Monte Carlo in `test/ui-mc.test.ts`;
   the pool protocol is covered by `test/mc-pool.test.ts` with a stubbed Worker).
+- Docs site (milestone 9) lives in `docs/` as VitePress (devDependency; the
+  design notes `plan.md`/`Concept-Search.md`/`time-varying-values.md` are
+  `srcExclude`d from the build). ` ```ts run ` blocks are executable tests —
+  self-contained programs importing `"kairotron"` (a tsconfig path), asserting
+  their own numbers with fixed seeds; keep them passing via
+  `npm run docs:check` (also validates internal links and anchors).
   Shareable model URLs (plan.md's "later") live in `web/src/share.ts`: the
   session (trunk code + horizon/MC control values + playhead + each branch's
   fork tick and buffer) JSON-encodes to one `?m=` query parameter,

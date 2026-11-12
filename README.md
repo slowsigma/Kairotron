@@ -278,7 +278,7 @@ src/
 web/        browser REPL (Vite, vanilla TS — editor, chart, scrubber, inspector, MC worker pool, share URLs, scenario sets)
 examples/   exemplar models across four domains
 test/       units, fold, gating, derived, exemplars, Monte Carlo, REPL, UI smoke tests
-docs/       plan.md (the plan), Concept-Search.md, time-varying-values.md
+docs/       VitePress docs site + plan.md (the plan), Concept-Search.md, time-varying-values.md
 ```
 
 ## Roadmap
@@ -296,6 +296,19 @@ Milestones from [`docs/plan.md`](docs/plan.md):
 - [x] Monte Carlo mode — random rate sequences (`stochastic`/`normal`/`uniform`), seeded paths on a worker pool, percentile bands over the timeline
 - [x] Shareable model URLs (plan.md's "later") — session (model + horizon + MC + playhead + branches) in a compressed query parameter
 - [x] Saved scenario sets (plan.md's "later") — named model variants grouped into sets in localStorage, loadable from the toolbar
+- [x] Polished documentation — a VitePress docs set (concepts, tutorial, DSL/CLI/outputs references, guides, cookbook, troubleshooting) whose `ts run` examples are extracted, executed, and typechecked in CI
+
+## Documentation
+
+Public docs live in [`docs/`](docs/) as a [VitePress](https://vitepress.dev/) site
+— concepts, getting-started tutorial, DSL / mini-notation / CLI / outputs
+references, guides (browser REPL, units & calendar, branches, Monte Carlo),
+cookbook, embedding, troubleshooting, glossary, contributor guide:
+
+```bash
+npm run docs:dev      # serve the docs locally
+npm run docs:check    # example blocks (run + typecheck) + site build incl. link check
+```
 
 ## Design docs
 
