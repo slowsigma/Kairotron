@@ -35,7 +35,7 @@ npx tsx src/cli.ts examples/retirement-mc.ts --mc 500 --seed 1
 # Browser REPL: live editor + timeline chart + scrubber + code highlighting
 npm run dev        # serves web/ with Vite
 
-# Tests (220, incl. numeric verification against hand-rolled loops)
+# Tests (289, incl. numeric verification against hand-rolled loops)
 npm test
 ```
 
@@ -147,6 +147,13 @@ The whole engine is `reduce` over ticks: `s_t = step(s_{t-1}, t, params)`.
 - **Gating, schedules, delays.** Rules compose: `when(guard, rule)`,
   `unless(...)`, `every(7, ...)`, `once(t, ...)`, `between(a, b, ...)`, and
   `lagged(stock, n)` for dependencies on earlier snapshots.
+- **Mini-notation sugar.** The same rules in the plan's terse grammar
+  ([retirement-mini.ts](examples/retirement-mini.ts)): `mini(\`preTax += preTax * growth "growth"\`)`
+  transpiles statements — `+= -= ->`, `when/unless/every/once/between` prefixes,
+  `k` magnitudes, `2.5%` percent, duration amounts `3k/mo` (normalized to the
+  tick like any rate), `lag(stock, n)`, guards with `&& || !` and date fields
+  (`year`, `month`) — into the same Rule objects, with provenance pointing at
+  each statement's own line. `miniDerived` covers `~netWorth = preTax + cash`.
 - **Branches are free.** `fork(history, t, variantModel)` continues the fold from
   any snapshot with a different rule set — the shared prefix is the *same* frozen
   snapshots, `lagged` reads across the fork point into the trunk, and a variant
@@ -211,6 +218,7 @@ Realistic exemplars, each verified tick-by-tick against a hand-rolled loop in
 | Model | Domain | What it exercises |
 |---|---|---|
 | [`retirement.ts`](examples/retirement.ts) | personal finance | rates with per-units, derived projections |
+| [`retirement-mini.ts`](examples/retirement-mini.ts) | personal finance | the same fold in the mini-notation sugar (`mini`/`miniDerived`) |
 | [`retirement-boost.ts`](examples/retirement-boost.ts) | personal finance | what-if fork of the model above (raise at tick 6) |
 | [`retirement-daily.ts`](examples/retirement-daily.ts) | personal finance | re-ticked fork: the same year on a daily grid |
 | [`reservoir.ts`](examples/reservoir.ts) | hydrology | monthly rates on daily ticks, proportional evaporation |
@@ -278,6 +286,7 @@ docs/       plan.md (the plan), Concept-Search.md, time-varying-values.md
 Milestones from [`docs/plan.md`](docs/plan.md):
 
 - [x] Engine prototype — fold runner, tick units, stock/flow DSL, CLI table
+- [x] Mini-notation sugar — `mini()`/`miniDerived()`: the plan's terse statement grammar, provenance intact
 - [x] Gating & events — guards, one-shot / recurring schedules, delays
 - [x] Derived quantities — read-only projections on every snapshot
 - [x] Browser REPL — editor, stacked timeline, scrubber, code highlighting

@@ -19,10 +19,12 @@ import {
   unless,
   when,
 } from "../../src/dsl/model.js";
+import { mini as miniSugar, miniDerived as miniSugarDerived } from "../../src/dsl/mini.js";
 
 const DSL = {
   model, flow, transfer, rate, pct, when, unless, every, once, between,
   lagged, laggedDelta, derived, date, stochastic, normal, uniform,
+  mini: miniSugar, miniDerived: miniSugarDerived,
 };
 
 // The REPL evaluates model code with new Function (Strudel's eval trick). V8

@@ -99,8 +99,8 @@ describe("browser REPL end to end (jsdom)", () => {
     const ta = doc().querySelector("#editor textarea") as HTMLTextAreaElement;
     ta.value = ta.value.replace("rate(4000", "rate(5000");
     ta.value = ta.value.replace(
-      'derived("preTaxShare"',
-      'derived("hop", (c) => c.stocks.preTax * 2),\n    derived("preTaxShare"',
+      "~preTaxShare = preTax / netWorth",
+      "~hop = preTax * 2\n    ~preTaxShare = preTax / netWorth",
     );
     el("#run").click();
     expect(el("#status").textContent).toMatch(/^b1 · ok — 40 ticks/);
@@ -132,9 +132,9 @@ describe("browser REPL end to end (jsdom)", () => {
   it("hides the derived pane without derivations and restores it when they come back", () => {
     const ta = doc().querySelector("#editor textarea") as HTMLTextAreaElement;
     const withDerived = ta.value;
-    // strip the derived block (there are no ']' inside the derivation bodies;
+    // strip the derived block (the miniDerived template is the whole value;
     // the trailing comma after the block is left intact)
-    ta.value = withDerived.replace(/derived:\s*\[[^\]]*\]/, "derived: []");
+    ta.value = withDerived.replace(/derived:\s*miniDerived\(`[^`]*`\)/, "derived: []");
     el("#run").click();
     expect(el("#status").textContent).toContain("ok —");
     expect((el("#derived-pane") as HTMLElement).style.display).toBe("none");

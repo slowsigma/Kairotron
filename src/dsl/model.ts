@@ -31,7 +31,7 @@ function toAmountFn(a: Amount): (ctx: TickContext) => number {
 // engine internals: V8 frames are "at name (/path/file:line:col)" behind an
 // "Error: msg" header line; Firefox is "name@/path/file:line[:col]" with no
 // header; WebKit is "name@file:line[:col]". depth counts frames above captureLoc.
-function captureLoc(depth = 2): SourceLocation | undefined {
+export function captureLoc(depth = 2): SourceLocation | undefined {
   const stack = new Error().stack;
   if (!stack) return undefined;
   const frames = stack.split("\n").filter((l) => l.trim() !== "");
@@ -226,7 +226,7 @@ function isRateValue(v: unknown): v is Rate {
 //   would make date gating disagree with a 30/360 fold. Inside a rule,
 //   `c.when(t)` / `c.date(t)` are bound to the fold's own horizon and are the
 //   safer idiom.
-export function when(cond: Guard, rule: Rule): GuardedRule;
+export function when(cond: Guard, rule: Rule, loc?: SourceLocation): GuardedRule;
 export function when(
   t: number,
   unit: TickUnit,
@@ -236,7 +236,7 @@ export function when(
 export function when(
   a: Guard | number,
   b: Rule | TickUnit,
-  basis?: number,
+  basisOrLoc?: number | SourceLocation,
   convention?: DayCount,
 ): GuardedRule | CalendarDate {
   if (typeof a === "number") {
@@ -256,10 +256,10 @@ export function when(
         `when(): unknown day-count convention '${convention}' (expected one of: ${DAY_COUNTS.join(", ")})`,
       );
     }
-    return whenDate(a, b, basis as number, convention);
+    return whenDate(a, b, basisOrLoc as number, convention);
   }
-  const loc = captureLoc(1);
-  return { kind: "when", guard: a, rule: b as Rule, ...(loc && { loc }) };
+  const resolved = (basisOrLoc as SourceLocation | undefined) ?? captureLoc(1);
+  return { kind: "when", guard: a, rule: b as Rule, ...(resolved && { loc: resolved }) };
 }
 
 // The basis constructor: a UTC civil timestamp for horizon.basis (tick 0's
@@ -268,41 +268,46 @@ export function date(input: string): number {
   return parseDate(input);
 }
 
-export function unless(cond: Guard, rule: Rule): GuardedRule {
-  const loc = captureLoc(1);
-  return { kind: "unless", guard: cond, rule, ...(loc && { loc }) };
+export function unless(cond: Guard, rule: Rule, loc?: SourceLocation): GuardedRule {
+  const resolved = loc ?? captureLoc(1);
+  return { kind: "unless", guard: cond, rule, ...(resolved && { loc: resolved }) };
 }
 
-export function every(interval: number | Rate, rule: Rule, offset = 0): ScheduledRule {
+export function every(
+  interval: number | Rate,
+  rule: Rule,
+  offset = 0,
+  loc?: SourceLocation,
+): ScheduledRule {
   if (typeof interval === "number" && (!Number.isInteger(interval) || interval <= 0)) {
     throw new Error(`every() interval must be a positive whole number of ticks (got ${interval})`);
   }
   if (!Number.isInteger(offset) || offset < 0) {
     throw new Error(`every() offset must be a non-negative integer tick (got ${offset})`);
   }
-  const loc = captureLoc(1);
+  const resolved = loc ?? captureLoc(1);
   return {
     kind: "on",
     schedule: { kind: "every", interval, offset },
     rule,
-    ...(loc && { loc }),
+    ...(resolved && { loc: resolved }),
   };
 }
 
-export function once(tick: number, rule: Rule): ScheduledRule {
+export function once(tick: number, rule: Rule, loc?: SourceLocation): ScheduledRule {
   if (!Number.isInteger(tick)) {
     throw new Error(`once() tick must be an integer (got ${tick})`);
   }
-  const loc = captureLoc(1);
-  return { kind: "on", schedule: { kind: "once", tick }, rule, ...(loc && { loc }) };
+  const resolved = loc ?? captureLoc(1);
+  return { kind: "on", schedule: { kind: "once", tick }, rule, ...(resolved && { loc: resolved }) };
 }
 
-export function between(from: number, to: number, rule: Rule): ScheduledRule {
+export function between(from: number, to: number, rule: Rule, loc?: SourceLocation): ScheduledRule {
   if (!Number.isInteger(from) || !Number.isInteger(to) || to < from) {
     throw new Error(`between() requires integer bounds with from <= to (got ${from}..${to})`);
   }
-  const loc = captureLoc(1);
-  return { kind: "on", schedule: { kind: "between", from, to }, rule, ...(loc && { loc }) };
+  const resolved = loc ?? captureLoc(1);
+  return { kind: "on", schedule: { kind: "between", from, to }, rule, ...(resolved && { loc: resolved }) };
 }
 
 // Schedule semantics are integer-tick based; abstract time is the default.
@@ -324,9 +329,13 @@ export function laggedDelta(stock: string, ticks: number): (ctx: TickContext) =>
   return (c) => c.lag(stock, ticks) - c.lag(stock, ticks + 1);
 }
 
-export function derived(name: string, expr: (ctx: DerivedContext) => number): DerivedDef {
+export function derived(
+  name: string,
+  expr: (ctx: DerivedContext) => number,
+  loc?: SourceLocation,
+): DerivedDef {
   if (!name) throw new Error("derived() requires a non-empty name");
   if (name === "t") throw new Error("derived name 't' is reserved (the built-in tick)");
-  const loc = captureLoc(1);
-  return { name, expr, ...(loc && { loc }) };
+  const resolved = loc ?? captureLoc(1);
+  return { name, expr, ...(resolved && { loc: resolved }) };
 }

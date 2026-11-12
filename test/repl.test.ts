@@ -41,6 +41,32 @@ describe("browser REPL compilation", () => {
     expect(() => compileModel('(() => { throw new Error("boom"); })()')).toThrow(/model code failed: boom/);
   });
 
+  const MINI_CODE = [
+    'model({',
+    '  horizon: { start: 0, end: 3, unit: "month" },',
+    '  constants: { fee: rate(1, "month") },',
+    '  stocks: { a: 100, b: 0 },',
+    '  rules: mini(`',
+    '    a -= 10 "drain"',
+    '  `),',
+    '  derived: miniDerived(`~total = a + b`),',
+    '})',
+  ].join("\n");
+
+  it("mini sugar runs under the REPL's new-Function sandbox", () => {
+    const compiled = compileModel(MINI_CODE);
+    const history = run(compiled.model);
+    expect(history[3].stocks.a).toBe(70);
+    expect(history[3].derived.total).toBe(70);
+  });
+
+  it("mini sugar provenance maps back to the editor line of the statement", () => {
+    const compiled = compileModel(MINI_CODE);
+    const delta = run(compiled.model)[1].deltas.find((d) => d.rule === "drain");
+    // line 6 of MINI_CODE: `a -= 10` is the first line of the mini block
+    expect(userLine(delta?.loc, compiled)).toBe(6);
+  });
+
   describe("horizonOverride", () => {
     const base = { start: 0, end: 40, unit: "year" } as const;
     it("returns undefined when the UI leaves everything on auto", () => {
