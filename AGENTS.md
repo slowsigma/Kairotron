@@ -110,6 +110,10 @@ Companion research: `docs/Concept-Search.md` (domain math),
   self-contained programs importing `"kairotron"` (a tsconfig path), asserting
   their own numbers with fixed seeds; keep them passing via
   `npm run docs:check` (also validates internal links and anchors).
+  The docs are built with `base: "/docs/"` and served by the REPL itself:
+  `vite.config.ts` plugins serve `docs/.vitepress/dist` under `/docs/` in dev
+  (with a debounced rebuild on docs edits) and copy it into `dist/docs` on
+  `npm run build`; the header's Docs link points at `/docs/`.
   Shareable model URLs (plan.md's "later") live in `web/src/share.ts`: the
   session (trunk code + horizon/MC control values + playhead + each branch's
   fork tick and buffer) JSON-encodes to one `?m=` query parameter,

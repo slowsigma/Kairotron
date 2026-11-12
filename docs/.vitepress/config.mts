@@ -8,6 +8,9 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
 
+  // Served under /docs/ by the REPL (dev proxy in vite.config.ts, dist/docs in builds).
+  base: "/docs/",
+
   // Design notes live beside the docs but are not part of the public set.
   srcExclude: ["plan.md", "Concept-Search.md", "time-varying-values.md"],
 
