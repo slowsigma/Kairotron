@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { cp, rm } from "node:fs/promises";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
 import path from "node:path";
 import { defineConfig, type Plugin } from "vite";
 
