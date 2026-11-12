@@ -35,7 +35,7 @@ npx tsx src/cli.ts examples/retirement-mc.ts --mc 500 --seed 1
 # Browser REPL: live editor + timeline chart + scrubber + code highlighting
 npm run dev        # serves web/ with Vite
 
-# Tests (289, incl. numeric verification against hand-rolled loops)
+# Tests (293, incl. numeric verification against hand-rolled loops)
 npm test
 ```
 

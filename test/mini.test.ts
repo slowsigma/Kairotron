@@ -101,6 +101,24 @@ describe("mini: expressions", () => {
     expect(run(m)[30]!.stocks.cash).toBe(10000 - 30 * 100);
   });
 
+  it("/unit divides when the name is a symbol, and stays a duration amount otherwise", () => {
+    // `day` is a stock, so this is plain division, not 100-per-day.
+    const m = model({
+      horizon: { start: 0, end: 1, unit: "month" },
+      stocks: { a: 100, day: 10 },
+      rules: mini(`a += a / day`),
+    });
+    expect(run(m)[1]!.stocks.a).toBe(110);
+
+    // A unit word that is also a function name is a call, not a duration.
+    const m2 = model({
+      horizon: { start: 0, end: 1, unit: "month" },
+      stocks: { a: 100, day: 10 },
+      rules: mini(`a += a / max(day, 5)`),
+    });
+    expect(run(m2)[1]!.stocks.a).toBe(110);
+  });
+
   it("lag/delta read committed history (the supply-chain delay in sugar)", () => {
     const m = model({
       horizon: { start: 0, end: 8, unit: "month" },
@@ -144,6 +162,15 @@ describe("mini: schedules and guards", () => {
     // at t=3 the drain pushes a<=0: the bonus stops and the refill fires
     expect(history[3]!.stocks).toEqual({ a: -5, b: 101 });
     expect(history[4]!.stocks.b).toBe(200);
+  });
+
+  it("parenthesized arithmetic still compares, and grouped guards still work", () => {
+    expect(ticksWith(miniModel(`when (t + 1) >= 3: a += 1 "gate"`), "gate")).toEqual([
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    ]);
+    expect(ticksWith(miniModel(`when (t > 9) || (t < 2): a += 1 "gate"`), "gate")).toEqual([
+      1, 10, 11, 12,
+    ]);
   });
 
   it("guards compose with && and || at the right precedence", () => {
@@ -238,6 +265,17 @@ describe("mini: layout", () => {
     const m = miniModel(`a += 1 "say \\"hi\\""`);
     expect(run(m)[1]!.deltas[0]!.rule).toBe('say "hi"');
   });
+
+  it("k-suffixed statements keep their full text as the default label", () => {
+    const m = miniModel(`
+      a += 3k
+      a += 3
+    `);
+    const deltas = run(m)[1]!.deltas;
+    expect(deltas[0]!.rule).toBe("a += 3k");
+    expect(deltas[0]!.loc?.text).toBe("a += 3k");
+    expect(deltas[1]!.rule).toBe("a += 3");
+  });
 });
 
 describe("mini: provenance", () => {
@@ -254,6 +292,14 @@ describe("mini: provenance", () => {
     const rules = mini(`a += 1`);
     expect(rules[0]!.loc?.file).toContain("mini.test.ts");
     expect(typeof rules[0]!.loc?.line).toBe("number");
+  });
+
+  it("guarded and scheduled statements strip the label from the nested rule's loc", () => {
+    for (const src of [`when true: a += 1 "one"`, `every 1: a += 1 "one"`, `once 1: a += 1 "one"`]) {
+      const history = run(miniModel(src));
+      const delta = history[1]!.deltas.find((d) => d.rule === "one");
+      expect(delta?.loc?.text).toBe(src.slice(0, src.lastIndexOf(' "')));
+    }
   });
 
   it("deltas from sugar rules keep provenance through the fold", () => {

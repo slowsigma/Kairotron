@@ -41,8 +41,9 @@ import { between, captureLoc, derived, every, flow, once, transfer, unless, when
 // built-in tick `t`, constants, stocks, rate/stochastic constants (read per
 // tick), then calendar date fields (year, month, day, hours, minutes,
 // seconds — needs a horizon basis). miniDerived() blocks additionally see
-// earlier `~` names (acyclic, as always). Unit words are reserved after '/'
-// (write `x / 12` for plain division).
+// earlier `~` names (acyclic, as always). After '/', a name the fold knows is
+// a division; otherwise a unit word makes a duration amount (`3k/mo`). A
+// function call such as `x / min(a, b)` is always a division.
 
 interface NumCtx {
   readonly t: number;
@@ -63,6 +64,11 @@ interface Tok {
   readonly value: string;
   readonly num: number;
   readonly col: number;
+  // Exclusive 0-based index of the token's last character + 1 in its line, so
+  // statement text can be sliced from the source even where `value` differs
+  // from the spelling (`3k` parses to "3" with num 3000; strings carry
+  // quotes/escapes).
+  readonly end: number;
 }
 
 const PUNCTS = [
@@ -124,35 +130,37 @@ function tokenize(text: string): Tok[] {
         }
       }
       if (j >= text.length) fail(`unterminated string at column ${i + 1}`);
-      toks.push({ kind: "str", value, num: NaN, col: i + 1 });
-      i = j + 1;
+      const end = j + 1;
+      toks.push({ kind: "str", value, num: NaN, col: i + 1, end });
+      i = end;
       continue;
     }
     const num = /^(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?/.exec(text.slice(i));
     if (num) {
-      let end = num[0]!.length;
+      let length = num[0]!.length;
       let value = Number(num[0]!);
-      if (text[i + end] === "k" || text[i + end] === "K") {
-        const after = text[i + end + 1];
-        if (after !== undefined && NAME_CHAR.test(after)) fail(`invalid number '${text.slice(i, i + end + 1)}...'`);
+      if (text[i + length] === "k" || text[i + length] === "K") {
+        const after = text[i + length + 1];
+        if (after !== undefined && NAME_CHAR.test(after)) fail(`invalid number '${text.slice(i, i + length + 1)}...'`);
         value *= 1000;
-        end++;
+        length++;
       }
-      toks.push({ kind: "num", value: num[0]!, num: value, col: i + 1 });
-      i += end;
+      toks.push({ kind: "num", value: num[0]!, num: value, col: i + 1, end: i + length });
+      i += length;
       continue;
     }
     if (NAME_START.test(ch)) {
       let j = i;
       while (j < text.length && NAME_CHAR.test(text[j]!)) j++;
-      toks.push({ kind: "name", value: text.slice(i, j), num: NaN, col: i + 1 });
+      toks.push({ kind: "name", value: text.slice(i, j), num: NaN, col: i + 1, end: j });
       i = j;
       continue;
     }
     const punc = PUNCTS.find((p) => text.startsWith(p, i));
     if (punc) {
-      toks.push({ kind: "punc", value: punc, num: NaN, col: i + 1 });
-      i += punc.length;
+      const end = i + punc.length;
+      toks.push({ kind: "punc", value: punc, num: NaN, col: i + 1, end });
+      i = end;
       continue;
     }
     fail(`unexpected character '${ch}' at column ${i + 1}`);
@@ -276,17 +284,41 @@ function readName(
   }
   if (Object.hasOwn(c.constants, name)) return c.constants[name]!;
   if (Object.hasOwn(c.stocks, name)) return c.stocks[name]!;
-  try {
-    return c.perTick(name);
-  } catch {
-    // not a rate/stochastic constant — fall through to the date fields
-  }
+  const rate = tryPerTick(c, name);
+  if (rate !== undefined) return rate;
   const field = DATE_FIELDS[name];
   if (field) return field(c.date());
   fail(
     `mini: unknown name '${name}' (${where}) — not a constant, stock, rate, built-in t, ` +
       `or date field (${Object.keys(DATE_FIELDS).join(", ")}); lag()/delta() read stocks`,
   );
+}
+
+// The fold reports an unknown rate constant by throwing; anything else from
+// perTick is a real error and must not be mistaken for "name not found".
+function tryPerTick(c: NumCtx, name: string): number | undefined {
+  try {
+    return c.perTick(name);
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith(`no rate constant named '${name}'`)) return undefined;
+    throw e;
+  }
+}
+
+// Resolve a name only when the fold knows it (no date fields, no throwing).
+// Duration amounts use this so `a / day` divides when `day` is a stock/constant
+// but `3k/mo` stays a per-month amount when `mo` names nothing.
+function trySymbol(
+  c: NumCtx,
+  name: string,
+  mode: "rule" | "derived",
+  derivedNames: ReadonlySet<string>,
+): number | undefined {
+  if (name === "t") return c.t;
+  if (mode === "derived" && derivedNames.has(name)) return c.derived![name]!;
+  if (Object.hasOwn(c.constants, name)) return c.constants[name]!;
+  if (Object.hasOwn(c.stocks, name)) return c.stocks[name]!;
+  return tryPerTick(c, name);
 }
 
 function parseAtom(cur: Cursor): Fx {
@@ -391,15 +423,24 @@ function parseMul(cur: Cursor): Fx {
       continue;
     }
     if (cur.isPunc("/")) {
-      const next = cur.toks[cur.ctx.pos + 1];
-      const unit = next && next.kind === "name" ? UNIT_ALIASES[next.value] : undefined;
-      if (unit) {
+      const afterSlash = cur.toks[cur.ctx.pos + 1];
+      const unit =
+        afterSlash && afterSlash.kind === "name" ? UNIT_ALIASES[afterSlash.value] : undefined;
+      const callAfterUnit = cur.toks[cur.ctx.pos + 2];
+      const isFunctionCall = callAfterUnit?.kind === "punc" && callAfterUnit.value === "(";
+      if (unit && !isFunctionCall) {
         // A duration amount: `3k/mo` is 3000 per month, normalized to the
-        // tick at fold time like any rate (units are semantics).
+        // tick at fold time like any rate (units are semantics). A symbol of
+        // the same name wins (`a / day` with a stock `day` divides), so unit
+        // words only act as units when the fold does not know the name.
         cur.next();
-        cur.next();
+        const unitName = cur.next().value;
+        const { mode, derivedNames } = cur.ctx;
         const l = left;
-        left = (c) => amountPer(c, l, unit);
+        left = (c) => {
+          const symbol = trySymbol(c, unitName, mode, derivedNames);
+          return symbol !== undefined ? l(c) / symbol : amountPer(c, l, unit);
+        };
         continue;
       }
       cur.next();
@@ -475,10 +516,28 @@ function parseComparison(cur: Cursor): Gd {
     return (c) => !inner(c);
   }
   if (cur.isPunc("(")) {
+    // A leading '(' is ambiguous: `(t > 2 || t < 1)` is a grouped guard, while
+    // `(a + b) > 2` is an arithmetic operand of the comparison. Try the grouped
+    // guard first and keep it only when a logical operator, the statement's
+    // ':', a nested ')' or the end follows; otherwise rewind and let the
+    // expression parser own the '('.
+    const save = cur.ctx.pos;
     cur.next();
-    const inner = parseGuard(cur);
-    cur.expectPunc(")");
-    return inner;
+    try {
+      const inner = parseGuard(cur);
+      cur.expectPunc(")");
+      const after = cur.peek();
+      if (
+        !after ||
+        (after.kind === "punc" &&
+          (after.value === "&&" || after.value === "||" || after.value === ":" || after.value === ")"))
+      ) {
+        return inner;
+      }
+    } catch (e) {
+      if (!(e instanceof SugarError)) throw e;
+    }
+    cur.ctx.pos = save;
   }
   const head = cur.peek();
   if (head?.kind === "name" && (head.value === "true" || head.value === "false")) {
@@ -591,8 +650,25 @@ function parseDerivedStatement(cur: Cursor, text: string, base: SourceLocation, 
   return derived(name, (c) => fx(c), loc);
 }
 
+// The fold attaches a flow/transfer's own loc to the deltas it writes, so the
+// label-free statement text has to reach every nested rule, not just the
+// outermost guard/schedule wrapper.
+function relabel(rule: Rule, text: string): Rule {
+  const loc = rule.loc ? { ...rule.loc, text } : undefined;
+  switch (rule.kind) {
+    case "flow":
+    case "transfer":
+      return loc ? { ...rule, loc } : rule;
+    case "when":
+    case "unless":
+    case "on":
+      return { ...rule, rule: relabel(rule.rule, text), ...(loc && { loc }) };
+  }
+}
+
 function withText<T extends Rule | DerivedDef>(node: T, text: string): T {
-  return node.loc ? { ...node, loc: { ...node.loc, text } } : node;
+  if ("kind" in node) return relabel(node, text) as T;
+  return (node.loc ? { ...node, loc: { ...node.loc, text } } : node) as T;
 }
 
 function parseProgram(source: string, mode: "rule" | "derived", base: SourceLocation): (Rule | DerivedDef)[] {
@@ -632,10 +708,7 @@ function parseProgram(source: string, mode: "rule" | "derived", base: SourceLoca
     for (const seg of splitStatements(toks)) {
       const first = seg[0]!;
       const last = seg[seg.length - 1]!;
-      const raw = text.slice(
-        first.col - 1,
-        last.col - 1 + last.value.length + (last.kind === "str" ? 2 : 0),
-      );
+      const raw = text.slice(first.col - 1, last.end);
       const ctx: ParseCtx = { mode, where: lineLabel, derivedNames, pos: 0, labelCol: undefined };
       const cur = new Cursor(seg, ctx);
       const isDerived = first.kind === "punc" && first.value === "~";
