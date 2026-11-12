@@ -139,6 +139,9 @@ This site is VitePress in `docs/` (`npm run docs:dev`; config in
 
 - **Dead links fail the build** — VitePress checks internal links; keep
   sidebar/nav entries and cross-references current when renaming pages.
+- **Local assets**: `scripts/check-doc-examples.ts` also validates hero
+  frontmatter (`image.src` / `src`) and markdown image targets; public assets
+  belong in `docs/public/` so VitePress copies them to the site root.
 - **Runnable examples**: fenced blocks tagged ` ```ts run ` are extracted by
   `scripts/check-doc-examples.ts` (wired as `npm run docs:examples`) into
   temp modules that are **imported and executed** — a block is a program

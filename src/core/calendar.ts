@@ -18,14 +18,15 @@ export function isCalendarConvention(name: DayCount): boolean {
   return CALENDAR_CONVENTIONS.includes(name);
 }
 
-// Parses "YYYY-MM-DD" (optionally "T HH:MM[:SS]") as a UTC civil timestamp,
-// rejecting fields that don't exist rather than rolling over (2021-02-30,
-// month 13, year 0050 via Date.UTC's 1900-shift — the round-trip check fails).
+// Parses "YYYY-MM-DD" (optionally "THH:MM[:SS]" or " HH:MM[:SS]") as a UTC
+// civil timestamp, rejecting fields that don't exist rather than rolling over
+// (2021-02-30, month 13, year 0050 via Date.UTC's 1900-shift — the round-trip
+// check fails).
 export function parseDate(input: string): number {
   const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/.exec(input.trim());
   if (!m) {
     throw new Error(
-      `invalid date '${input}' — expected 'YYYY-MM-DD' (optionally 'T HH:MM' or 'T HH:MM:SS', UTC)`,
+      `invalid date '${input}' — expected 'YYYY-MM-DD' (optionally 'YYYY-MM-DDTHH:MM' or 'YYYY-MM-DD HH:MM', UTC)`,
     );
   }
   const year = Number(m[1]);

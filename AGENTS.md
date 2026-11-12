@@ -83,9 +83,10 @@ Companion research: `docs/Concept-Search.md` (domain math),
    `scripts/check-doc-examples.ts`, imported/executed under tsx (the
    `kairotron` tsconfig path maps to `src/index.ts`) and then typechecked with
    the project's strict settings; the same script also validates internal
-   links and heading anchors (VitePress only checks pages). `npm run docs:dev`
-   serves it, `npm run docs:check` (examples + site build incl. dead-page
-   check) runs in CI alongside typecheck and vitest. ✓ done
+   links, heading anchors, and local image assets (VitePress only checks
+   pages). `npm run docs:dev` serves it, `npm run docs:check` (examples + site
+   build incl. dead-page check) runs in CI alongside typecheck and vitest. ✓
+   done
 
 ## Conventions
 

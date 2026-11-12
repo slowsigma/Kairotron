@@ -6,7 +6,7 @@
 // project's strict compiler settings (esbuild executes without checking).
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -61,8 +61,9 @@ function checkInternalLinks(): number {
       if (fenced) continue;
       const heading = /^#{1,6}\s+(.*)$/.exec(text);
       if (heading) slugs.add(slugify(heading[1]!));
-      for (const m of text.matchAll(/\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)/g)) {
-        const href = m[1]!;
+      for (const m of text.matchAll(/(!?)\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)/g)) {
+        if (m[1] === "!") continue;
+        const href = m[2]!;
         if (/^(https?:|mailto:)/.test(href)) continue;
         links.push({ file: rel, line: i + 1, href });
       }
@@ -92,6 +93,48 @@ function checkInternalLinks(): number {
     if (anchor && !headings.get(mdFile)!.has(slugify(anchor))) {
       bad++;
       console.error(`dead anchor ${file}:${line} → ${href}`);
+    }
+  }
+  return bad;
+}
+
+function assetExists(file: string, href: string): boolean {
+  const clean = href.split("#")[0]!.split("?")[0]!;
+  if (clean === "" || /^(https?:|mailto:|data:)/.test(clean)) return true;
+  if (clean.startsWith("/")) return existsSync(join(docsDir, "public", clean.slice(1)));
+  return existsSync(resolve(dirname(file), clean));
+}
+
+// VitePress does not fail the build for a dead hero image or local image link.
+// Check both frontmatter `src`/`image` values and markdown image targets.
+function checkAssets(): number {
+  let bad = 0;
+  for (const file of markdownFiles(docsDir)) {
+    const rel = relative(root, file);
+    const lines = readFileSync(file, "utf8").split("\n");
+    if (lines[0]?.trim() === "---") {
+      const end = lines.findIndex((line, i) => i > 0 && line.trim() === "---");
+      for (let i = 1; end > 0 && i < end; i++) {
+        const m = /^\s*(?:src|image):\s*["']?([^"'\s]+)/.exec(lines[i]!);
+        if (m && !/^[{\[]/.test(m[1]!) && !assetExists(file, m[1]!)) {
+          bad++;
+          console.error(`missing asset ${rel}:${i + 1} → ${m[1]}`);
+        }
+      }
+    }
+    let fenced = false;
+    for (const [i, text] of lines.entries()) {
+      if (/^\s*```/.test(text)) {
+        fenced = !fenced;
+        continue;
+      }
+      if (fenced) continue;
+      for (const m of text.matchAll(/!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)/g)) {
+        if (!assetExists(file, m[1]!)) {
+          bad++;
+          console.error(`missing asset ${rel}:${i + 1} → ${m[1]}`);
+        }
+      }
     }
   }
   return bad;
@@ -132,6 +175,7 @@ const slug = (b: Block, i: number): string =>
 
 async function main(): Promise<void> {
   const badLinks = checkInternalLinks();
+  const badAssets = checkAssets();
   const blocks = extractBlocks();
   rmSync(tmpDir, { recursive: true, force: true });
   mkdirSync(tmpDir, { recursive: true });
@@ -171,9 +215,10 @@ async function main(): Promise<void> {
     console.error("FAIL  docs examples typecheck\n" + (res.stdout ?? "") + (res.stderr ?? ""));
   }
 
-  const total = failed + badLinks;
+  const total = failed + badLinks + badAssets;
   console.log(
     `docs-examples: ${blocks.length} blocks, ${badLinks ? `${badLinks} dead link(s), ` : ""}` +
+      `${badAssets ? `${badAssets} missing asset(s), ` : ""}` +
       (total ? `${total} FAILED` : "all ok"),
   );
   if (total > 0) process.exit(1);

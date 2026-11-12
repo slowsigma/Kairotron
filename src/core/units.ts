@@ -117,11 +117,12 @@ export function convertTicks(
   return (ticks * daysPerTick(fromUnit, convention)) / daysPerTick(toUnit, convention);
 }
 
-// Floating-point ratios like 12 × (365/12) don't come back exactly integral;
-// durations this close to a whole tick are rounding noise, not friction. Scale
-// by machine epsilon, not a fixed 1e-9: at a billion second-ticks the old
-// relative band silently accepted (and rounded) fractions of thousands of
-// seconds. An absolute floor absorbs tiny ordinary-arithmetic noise.
+// Floating-point ratios can be a hair off: 60 second ticks convert to
+// 0.9999999999999999 minute ticks. Durations this close to a whole tick are
+// rounding noise, not friction. Scale by machine epsilon, not a fixed 1e-9: at
+// a billion second-ticks the old relative band silently accepted (and rounded)
+// fractions of thousands of seconds. An absolute floor absorbs tiny
+// ordinary-arithmetic noise.
 const TICK_EPSILON_ABS = 1e-12;
 const TICK_EPSILON_REL = 8 * Number.EPSILON;
 

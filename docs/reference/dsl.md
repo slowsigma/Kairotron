@@ -249,9 +249,9 @@ export default model({
 });
 ```
 
-- `date(input)` parses `"YYYY-MM-DD"` (optionally `"T HH:MM"`/`"T HH:MM:SS"`,
-  UTC) into epoch-ms, rejecting dates that don't exist (`2021-02-30`, month 13)
-  rather than rolling over.
+- `date(input)` parses `"YYYY-MM-DD"` (optionally `"YYYY-MM-DDTHH:MM[:SS]"`
+  or `"YYYY-MM-DD HH:MM[:SS]"`, UTC) into epoch-ms, rejecting dates that don't
+  exist (`2021-02-30`, month 13) rather than rolling over.
 - `c.when(t?)` / `c.date(t?)` are the horizon-bound reads — preferred in rules;
   they use the fold's own unit/convention/basis and throw a clear message when
   the model declares no basis.

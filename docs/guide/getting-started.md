@@ -8,8 +8,8 @@ in CI, so it cannot drift from the engine.
 ## Prerequisites
 
 - **Node 20.19+** (22+ recommended) and npm.
-- No global installs — `tsx`, `vite`, and `vitest` come from the repo's own
-  dev dependencies.
+- No global installs — `tsx` comes from the repo's dependencies, and `vite` and
+  `vitest` from its dev dependencies.
 
 ## Install
 
@@ -50,11 +50,12 @@ npx tsx src/cli.ts examples/retirement.ts --flows
 
 ```text
 t=1
-       +2,750.00  preTax       monthly contribution  @examples/retirement.ts:17:5
-         +716.04  preTax       growth @ 7%/year      @examples/retirement.ts:18:5
-          +31.25  cash         interest @ 1.5%/year  @examples/retirement.ts:19:5
+       +2,750.00  preTax       monthly contribution  @/path/to/repo/examples/retirement.ts:17:5
+         +716.04  preTax       growth @ 7%/year  @/path/to/repo/examples/retirement.ts:18:5
+          +31.25  cash         interest @ 1.5%/year  @/path/to/repo/examples/retirement.ts:19:5
 ```
 
+The CLI prints source paths as absolute filenames; they are shortened here.
 This **provenance** is what powers code highlighting in the browser REPL —
 the CLI just prints it raw.
 
@@ -161,16 +162,16 @@ npx tsx src/cli.ts examples/retirement.ts --unit year
 ```
 
 ```text
-  t      preTax       cash   ~netWorth  ~preTaxShare
---  ----------  ---------  ----------  ------------
-  0  120,000.00  25,000.00  145,000.00          0.83
-  1  131,342.50  25,375.00  156,717.50          0.84
+t      preTax       cash   ~netWorth  ~preTaxShare
+-  ----------  ---------  ----------  ------------
+0  120,000.00  25,000.00  145,000.00          0.83
+1  131,342.50  25,375.00  156,717.50          0.84
 ```
 
 0..12 monthly ticks became 0..1 yearly tick — the same *duration*. The 7%/year
 growth rate now lands as 7% per tick instead of 7/12%, and the flat 2750
 contribution is applied once instead of twelve times: `131,342.50` after one
-yearly tick is not `162,953.31` after twelve monthly ticks. That difference is
+yearly tick is not `162,953.22` after twelve monthly ticks. That difference is
 the point — [units are semantics](/guide/units-and-calendar).
 
 ## Fork a what-if

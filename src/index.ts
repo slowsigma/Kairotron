@@ -1,5 +1,6 @@
 export * from "./core/types.js";
 export * from "./core/units.js";
+export * from "./core/calendar.js";
 export * from "./core/random.js";
 export * from "./core/fold.js";
 export * from "./core/mc.js";

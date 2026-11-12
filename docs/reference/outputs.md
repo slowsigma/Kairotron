@@ -44,13 +44,14 @@ names may contain commas, quotes, or newlines.
 
 ```text
 t=1
-       +2,750.00  preTax       monthly contribution  @examples/retirement.ts:17:5
-         +716.04  preTax       growth @ 7%/year      @examples/retirement.ts:18:5
-          +31.25  cash         interest @ 1.5%/year  @examples/retirement.ts:19:5
+       +2,750.00  preTax       monthly contribution  @/path/to/repo/examples/retirement.ts:17:5
+         +716.04  preTax       growth @ 7%/year  @/path/to/repo/examples/retirement.ts:18:5
+          +31.25  cash         interest @ 1.5%/year  @/path/to/repo/examples/retirement.ts:19:5
 ```
 
 Signed, aligned amount; stock; rule **label**; and `@file:line:column` when
-the rule carried a captured source location. `transfer` writes two lines
+the rule carried a captured source location. Source paths are printed absolute
+(shortened here as `/path/to/repo`). `transfer` writes two lines
 (negative on `from`, positive on `to`, same label). Tick 0 (no deltas) prints
 nothing. Fork-override writes appear as `fork @t=…` deltas. CLI: `--flows`,
 also for the branch after its fork tick.
@@ -106,7 +107,7 @@ The REPL's **JSON** button, for a deterministic timeline:
 ```jsonc
 {
   "branch": "b1",           // current chip; "main" for the trunk
-  "forkT": 6,               // fork tick, null on the trunk
+  "forkT": 6,               // fork tick; omitted on the trunk
   "horizon": { "start": 0, "end": 12, "unit": "month" },
   "history": [              // the full append-only snapshot array
     {

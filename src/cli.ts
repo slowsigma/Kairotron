@@ -177,7 +177,28 @@ async function loadModel(file: string): Promise<Model> {
   return model;
 }
 
-const model = await loadModel(file);
+function fail(e: unknown): never {
+  console.error(e instanceof Error ? e.message : String(e));
+  process.exit(1);
+}
+
+function report<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+async function reportAsync<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+const model = await reportAsync(() => loadModel(file));
 
 // Re-ticking preserves the horizon's duration: 0..12 monthly ticks re-express
 // as 0..1 yearly tick, and rates re-normalize. --end (in the new unit) opts
@@ -200,25 +221,21 @@ if (unitOverride !== undefined || end !== undefined || conventionOverride !== un
 // instead of a single history. Deterministic runs are untouched — this mode
 // only exists so stochastic constants get sampled.
 if (mcPaths !== undefined) {
-  const mc = runPaths(model, {
-    paths: mcPaths,
-    ...(mcSeed !== undefined ? { seed: mcSeed } : {}),
-    ...(horizon !== undefined ? { horizon } : {}),
-  });
-  const summary = summarizeMonteCarlo(mc, percentiles);
+  const mc = report(() =>
+    runPaths(model, {
+      paths: mcPaths,
+      ...(mcSeed !== undefined ? { seed: mcSeed } : {}),
+      ...(horizon !== undefined ? { horizon } : {}),
+    }),
+  );
+  const summary = report(() => summarizeMonteCarlo(mc, percentiles));
   console.log(`monte carlo — ${mc.paths} paths × ${summary.rows.length - 1} ticks · seed ${mc.seed}`);
   console.log(csv ? formatPercentileCsv(summary) : formatPercentileTable(summary));
   if (forkAt !== undefined) {
-    const variant = await loadModel(variantFile!);
-    let branch: ReturnType<typeof forkMonteCarlo>;
-    try {
-      // Same-world continuation: inherit the already-run trunk's seed.
-      branch = forkMonteCarlo(mc, forkAt, variant, {});
-    } catch (e) {
-      console.error(e instanceof Error ? e.message : String(e));
-      process.exit(1);
-    }
-    const branchSummary = summarizeMonteCarlo(branch, percentiles);
+    const variant = await reportAsync(() => loadModel(variantFile!));
+    // Same-world continuation: inherit the already-run trunk's seed.
+    const branch = report(() => forkMonteCarlo(mc, forkAt, variant, {}));
+    const branchSummary = report(() => summarizeMonteCarlo(branch, percentiles));
     console.log("");
     console.log(
       `branch '${basename(variantFile!)}' — forked at t=${forkAt}; each path continues its trunk path's shocks`,
@@ -228,7 +245,7 @@ if (mcPaths !== undefined) {
   process.exit(0);
 }
 
-const history = run(model, horizon);
+const history = report(() => run(model, horizon));
 console.log(csv ? formatCsv(history) : formatTable(history));
 if (flows) {
   console.log("");
@@ -239,14 +256,10 @@ if (flows) {
 // the snapshot at --fork-at, sharing the prefix for free. The variant's own
 // horizon sets the branch end, so a what-if can run longer than the trunk.
 if (forkAt !== undefined) {
-  const variant = await loadModel(variantFile!);
-  let branch: Branch;
-  try {
-    branch = fork(history, forkAt, variant, { label: basename(variantFile!) });
-  } catch (e) {
-    console.error(e instanceof Error ? e.message : String(e));
-    process.exit(1);
-  }
+  const variant = await reportAsync(() => loadModel(variantFile!));
+  const branch: Branch = report(() =>
+    fork(history, forkAt, variant, { label: basename(variantFile!) }),
+  );
   console.log("");
   const forkNote =
     branch.forkTBranch === forkAt

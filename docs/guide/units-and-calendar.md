@@ -53,10 +53,10 @@ quarter spans 3 monthly ticks but only 0.25 yearly ticks, so
 `every(rate(1, "quarter"), rule)` is legal on month ticks and illegal on
 year ticks.
 
-Both directions convert *through days*, so floating-point ratios like
-12 × (365/12) come back as 4227.000000000001-style noise: durations within a
-machine-epsilon-scaled tolerance of a whole tick are accepted as rounding
-noise, and genuine fractions are rejected by name.
+Both directions convert *through days*, so floating-point ratios can produce
+noise: 60 second ticks convert to `0.9999999999999999` minute ticks. Durations
+within a machine-epsilon-scaled tolerance of a whole tick are accepted as
+rounding noise, and genuine fractions are rejected by name.
 
 ## Re-ticking a horizon
 

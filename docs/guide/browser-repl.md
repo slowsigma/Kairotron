@@ -142,7 +142,7 @@ scenarios; stacked-branch sessions are the share-URL notion.
 
 The editor starts with a small deterministic retirement fold
 (`web/src/sample.ts`) — Run it, then drag the playhead through the tick where
-the RMD rule first fires, and watch the editor light up. From there:
+the annual top-up rule first fires, and watch the editor light up. From there:
 fork before that tick, gate the rule differently, re-run, and read the Δ
 pane.
 

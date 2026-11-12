@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.svg" alt="Kairotron — fold your system across time" width="960">
+  <img src="docs/public/banner.svg" alt="Kairotron — fold your system across time" width="960">
 </p>
 
 # Kairotron
@@ -84,9 +84,9 @@ which source line. This is what powers playhead-linked code highlighting in the 
 
 ```
 t=1
-      +2,750.00  preTax  monthly contribution  @examples/retirement.ts:17:5
-        +716.04  preTax  growth @ 7%/year      @examples/retirement.ts:18:5
-         +31.25  cash    interest @ 1.5%/year  @examples/retirement.ts:19:5
+      +2,750.00  preTax  monthly contribution  @/path/to/repo/examples/retirement.ts:17:5
+        +716.04  preTax  growth @ 7%/year      @/path/to/repo/examples/retirement.ts:18:5
+         +31.25  cash    interest @ 1.5%/year  @/path/to/repo/examples/retirement.ts:19:5
 ```
 
 Because the tick unit is **semantics**, not just tempo, re-ticking changes the model
@@ -307,7 +307,7 @@ cookbook, embedding, troubleshooting, glossary, contributor guide:
 
 ```bash
 npm run docs:dev      # serve the docs locally
-npm run docs:check    # example blocks (run + typecheck) + site build incl. link check
+npm run docs:check    # example blocks (run + typecheck) + asset/link check + site build
 ```
 
 ## Design docs

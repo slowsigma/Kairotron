@@ -140,7 +140,7 @@ npx tsx src/cli.ts examples/retirement.ts --fork-at 6 \
   --variant examples/retirement-daily.ts --diff
 
 # Monte Carlo, 500 paths, percentile table (CSV on stdout for scripting)
-npx tsx src/cli.ts examples/retirement-mc.ts --mc 500 --seed 1 > mc.csv
+npx tsx src/cli.ts examples/retirement-mc.ts --mc 500 --seed 1 --csv > mc.csv
 
 # Calendar model: date column in the table
 npx tsx src/cli.ts examples/rmd-calendar.ts --end 900

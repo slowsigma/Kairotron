@@ -43,9 +43,10 @@ interface MonteCarloResult { seed: number; paths: number; horizon: Horizon;
                              timelines: readonly (readonly Snapshot[])[] }
 ```
 
-Everything the engine hands back is `Object.freeze`d (with null-prototype
-internals where names are user-chosen) — the immutability the docs promise is
-literal, and embedding code can share snapshots freely.
+Fold results — histories, snapshots, branches, and Monte Carlo results — are
+`Object.freeze`d (with null-prototype internals where names are user-chosen);
+embedding code can share snapshots freely. A `Model` itself is an ordinary
+object, though its `horizon` is frozen.
 
 ## Entry points
 
@@ -105,20 +106,21 @@ if (Math.abs(series[1]! - 6090) > 1e-9) throw new Error(`t=1: ${series[1]}`);
 
 ## Folding without the DSL
 
-`Model` is a plain (frozen) object satisfying `ModelSpec`; you can construct
-it by hand — or generate it from your own schema — and call `run()`
-directly. The DSL layer (`model()`, `flow()`, …) only adds validation and
+`Model` is a plain object satisfying `ModelSpec` (its `horizon` is frozen);
+you can construct it by hand — or generate it from your own schema — and call
+`run()` directly. The DSL layer (`model()`, `flow()`, …) only adds validation and
 provenance capture; a hand-built rule simply has no `loc`, and every view
 degrades gracefully (`--flows` prints the rule label with no `@location`).
 
 ## A note on purity
 
-`src/core/` and `src/dsl/` have **no dependencies on the DOM, Node APIs,
-Date, or Math.random**: the same compiled module runs in Node (CLI), in a
-browser tab, and in a module worker, and any two of them produce bit-identical
-histories for the same input. If you're extending the engine, keep it that way
-— the contract is enforced socially in review and structurally by the worker-
-pool and jsdom tests ([Contributing guide](/contributing)).
+`src/core/` and `src/dsl/` do not read an ambient clock (`Date.now()`), use
+`Math.random`, or touch the DOM or Node APIs: the same compiled module runs in
+Node (CLI), in a browser tab, and in a module worker, and any two of them
+produce bit-identical histories for the same input. If you're extending the
+engine, keep it that way — the contract is enforced socially in review and
+structurally by the worker-pool and jsdom tests
+([Contributing guide](/contributing)).
 
 ## Related
 
