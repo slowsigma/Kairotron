@@ -39,6 +39,10 @@ needed.
   snapshot array.
 - **Tab** in the editor inserts two spaces; the transparent textarea sits over
   a syntax-free mirror `<pre>` that carries the highlight backgrounds.
+- **Resize** the panes by dragging the vertical handle between the editor and
+  the results. **Double-click** it resets to the default split; with the handle
+  focused, **←**/**→** nudge it and **Home** resets (its arrows never move the
+  playhead). The width persists across reloads.
 
 ## Provenance highlighting
 

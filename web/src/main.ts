@@ -956,6 +956,77 @@ slider.addEventListener("input", () => {
   setPlayhead(cur().history[0].t + Number(slider.value));
 });
 
+// Draggable editor/result split: the editor column's width rides in
+// --editor-w on <main> (see styles.css), persisted across reloads. A
+// double-click resets to the CSS default. Arrows nudge it while the
+// splitter owns keyboard focus — stopPropagation so the global handler
+// below doesn't move the playhead with the same keystrokes.
+const SPLIT_KEY = "kairotron.split.v1";
+const SPLIT_MIN_LEFT = 320;
+const SPLIT_MIN_RIGHT = 360;
+const SPLIT_CHROME = 46; // main's padding + gaps + the splitter column
+const mainEl = document.querySelector("main") as HTMLElement;
+const splitter = $("splitter");
+const splitStore = {
+  load(): number | undefined {
+    try {
+      const n = Number(localStorage.getItem(SPLIT_KEY));
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    } catch {
+      return undefined; // no storage (test harness, private mode)
+    }
+  },
+  save(px: number | null): void {
+    try {
+      if (px === null) localStorage.removeItem(SPLIT_KEY);
+      else localStorage.setItem(SPLIT_KEY, String(px));
+    } catch {
+      // the splitter just won't persist
+    }
+  },
+};
+function setSplit(px: number | null): void {
+  if (px === null) {
+    mainEl.style.removeProperty("--editor-w");
+    splitStore.save(null);
+    return;
+  }
+  const max = Math.max(SPLIT_MIN_LEFT, mainEl.clientWidth - SPLIT_CHROME - SPLIT_MIN_RIGHT);
+  mainEl.style.setProperty("--editor-w", `${Math.round(Math.min(Math.max(px, SPLIT_MIN_LEFT), max))}px`);
+  splitStore.save(px); // persist the intent; the clamp adapts to the window
+}
+let splitting = false;
+splitter.addEventListener("pointerdown", (e) => {
+  splitting = true;
+  splitter.setPointerCapture(e.pointerId);
+  splitter.classList.add("drag");
+  document.body.classList.add("resizing");
+  e.preventDefault();
+});
+splitter.addEventListener("pointermove", (e) => {
+  if (splitting) setSplit(e.clientX - mainEl.getBoundingClientRect().left - 10);
+});
+const endSplit = (): void => {
+  splitting = false;
+  splitter.classList.remove("drag");
+  document.body.classList.remove("resizing");
+};
+splitter.addEventListener("pointerup", endSplit);
+splitter.addEventListener("pointercancel", endSplit);
+splitter.addEventListener("dblclick", () => setSplit(null));
+splitter.addEventListener("keydown", (e) => {
+  if (e.key === "Home") setSplit(null);
+  else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    const raw = parseFloat(mainEl.style.getPropertyValue("--editor-w"));
+    const now = Number.isFinite(raw) ? raw : $("editor-pane").getBoundingClientRect().width;
+    setSplit(now + (e.key === "ArrowRight" ? 40 : -40));
+  } else return;
+  e.preventDefault();
+  e.stopPropagation();
+});
+const savedSplit = splitStore.load();
+if (savedSplit !== undefined) setSplit(savedSplit);
+
 const attachScrub = (svg: SVGSVGElement): void => {
   let dragging = false;
   const toT = (e: PointerEvent) => {

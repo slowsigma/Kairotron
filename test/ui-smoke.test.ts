@@ -161,6 +161,22 @@ describe("browser REPL end to end (jsdom)", () => {
     expect(legend.innerHTML).toContain("&quot;");
     expect(legend.querySelector<HTMLElement>(".item")!.dataset.name).toBe('~x"on"><b>i</b>');
   });
+
+  it("the splitter resizes the panes, keeps its arrows off the playhead, and resets", () => {
+    const main = el("main");
+    const split = el("#splitter");
+    const playhead = el("#playhead-label").textContent;
+
+    split.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight" }));
+    // jsdom has no layout (clientWidth 0), so the clamp pins the column to its
+    // minimum — what's under test is that the splitter now owns an explicit width
+    expect(main.style.getPropertyValue("--editor-w")).toBe("320px");
+    // and the splitter consumed the arrow — the playhead must not have moved
+    expect(el("#playhead-label").textContent).toBe(playhead);
+
+    split.dispatchEvent(new dom.window.MouseEvent("dblclick", { bubbles: true }));
+    expect(main.style.getPropertyValue("--editor-w")).toBe("");
+  });
 });
 
 describe("editor mirror", () => {

@@ -104,6 +104,10 @@ Companion research: `docs/Concept-Search.md` (domain math),
   `npm run dev` serves it, `npm run build` bundles it, UI wiring is smoke-tested
   under jsdom (`test/ui-smoke.test.ts`, Monte Carlo in `test/ui-mc.test.ts`;
   the pool protocol is covered by `test/mc-pool.test.ts` with a stubbed Worker).
+  The editor/results split is resizable by dragging `#splitter` (width in
+  `--editor-w` on `<main>`, persisted in `localStorage` under
+  `kairotron.split.v1`); its keyboard arrows stop propagation so they never
+  move the playhead.
 - Docs site (milestone 9) lives in `docs/` as VitePress (devDependency; the
   design notes `plan.md`/`Concept-Search.md`/`time-varying-values.md` are
   `srcExclude`d from the build). ` ```ts run ` blocks are executable tests —
