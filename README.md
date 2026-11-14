@@ -318,6 +318,22 @@ npm run docs:check    # example blocks (run + typecheck) + asset/link check + si
 - [`docs/Concept-Search.md`](docs/Concept-Search.md) — the domain math
 - [`docs/time-varying-values.md`](docs/time-varying-values.md) — the prior-art landscape
 
+## Scope and disclaimer
+
+Kairotron is a **time-centric programmable calculator** — a scratchpad for
+discrete-time dynamical systems, not a modeling engine for markets, taxes,
+weather, or reality. It computes exactly what your rules tell it to and
+nothing else, so a result is only as good as the model behind it — and even
+then, approximations are built in by design (rate conversion, day-count
+conventions, floating-point arithmetic, Monte Carlo sampling).
+
+**We make no guarantees as to the accuracy, correctness, completeness, or
+fitness for any purpose of any result. Use this at your own risk.** Treat
+every number it prints — especially a financial projection — as a thinking
+tool, not as advice or a forecast, and never as a substitute for your own
+judgment or professional guidance. Before you trust a model, verify it the
+way this repo's test suite does: against a hand-rolled loop.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
