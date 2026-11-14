@@ -20,6 +20,7 @@ domain-specific is hardcoded in the engine.
 ## Quick start
 
 ```bash
+git clone https://github.com/slowsigma/Kairotron && cd Kairotron
 npm install
 
 # Text-first: run an example model in the CLI
@@ -33,7 +34,7 @@ npx tsx src/cli.ts examples/retirement.ts --fork-at 6 \
 npx tsx src/cli.ts examples/retirement-mc.ts --mc 500 --seed 1
 
 # Browser REPL: live editor + timeline chart + scrubber + code highlighting
-npm run dev        # serves web/ with Vite
+npm run dev        # serves web/ at http://localhost:5173 (docs under /docs)
 
 # Tests (293, incl. numeric verification against hand-rolled loops)
 npm test

@@ -34,7 +34,8 @@ npm run run -- examples/retirement.ts
 ```
 
 The `kairotron` bin entry (`bin/cli.js`) is the same CLI compiled with
-`npm run build:bin`; the published package registers it as an executable.
+`npm run build:bin`; a packaged install (`npm pack` / a future npm publish)
+would register it as an executable.
 
 ## Model files
 

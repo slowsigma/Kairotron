@@ -7,7 +7,7 @@ in CI, so it cannot drift from the engine.
 
 ## Prerequisites
 
-- **Node 20.19+** (22+ recommended) and npm.
+- **Node 22.12+** (24+ or 26+ also work) and npm.
 - No global installs — `tsx` comes from the repo's dependencies, and `vite` and
   `vitest` from its dev dependencies.
 

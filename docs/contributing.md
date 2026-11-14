@@ -17,7 +17,7 @@ web/        browser REPL — Vite + vanilla TS, zero runtime deps
   src/mc-pool.ts    Vite module-worker path pool (+ sequential fallback)
   src/share.ts      ?m= session codec (deflate-raw + base64url, j-prefixed fallback)
   src/scenarios.ts  scenario sets store (StorageLike injected → no DOM in tests)
-bin/        compiled CLI (tsc -p tsconfig.bin.json; gitignored, built for publish)
+bin/        compiled CLI (tsc -p tsconfig.bin.json; gitignored, built for packaging)
 examples/   exemplar models across four domains
 test/       vitest suite (engine numerics, CLI outputs, REPL compile, jsdom UI)
 docs/       this site (VitePress) + plan.md, Concept-Search.md, time-varying-values.md

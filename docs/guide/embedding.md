@@ -6,20 +6,30 @@ are all thin shells over the same exports; you can be too.
 
 ## Import
 
+The package isn't published to the npm registry — the intended flow is to
+clone the repo and run your code inside it (or reference the clone as a
+path/git dependency of yours):
+
 ```bash
-npm install kairotron
+git clone <your-kairotron-remote> && cd kairotron && npm install
 ```
 
 ```ts
 // everything: types, fold, units, calendar, DSL, sugar, formatters
 import { model, flow, run, formatTable } from "kairotron";
 
-// or in this repo, module by module:
+// or module by module, relative to the clone:
 import { fork, run as runFold } from "../src/core/fold.js";
 ```
 
-In-repo docs/tooling may write `import ... from "kairotron"` too — the repo's
-`tsconfig.json` paths map the bare specifier to `src/index.ts`.
+`"kairotron"` is the repo's `tsconfig.json` `paths` alias for `src/index.ts`;
+`tsx` resolves it for any program run inside the clone — that is how the
+docs' runnable examples execute. In an outside project, point the alias at
+the clone the same way:
+
+```json
+"paths": { "kairotron": ["/path/to/kairotron/src/index.ts"] }
+```
 
 ## Core shapes
 
