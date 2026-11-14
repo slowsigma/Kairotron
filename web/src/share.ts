@@ -7,6 +7,12 @@
 // UTF-8 JSON (the fallback where CompressionStream is unavailable). Both
 // encoders/decoders are pure async functions over bytes so the codec is
 // testable outside the DOM.
+//
+// Security note: opening a link executes the payload's model code — that is
+// the REPL's design (new Function, Strudel-style). `validatePayload` checks
+// the payload's structure, but the `code` string is arbitrary JavaScript by
+// construction and cannot be validated; callers (and docs) must treat a
+// share link like pasted code.
 
 export const SHARE_PARAM = "m";
 

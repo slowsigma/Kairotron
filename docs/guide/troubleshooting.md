@@ -202,6 +202,12 @@ the toolbar; fill both consistently (they're raw ticks in the selected unit).
 **`bad share link: … — started from the sample`** — corrupted/truncated
 `?m=` parameter (copy the whole URL; some clients wrap/truncate).
 
+**A share link ran code you didn't expect** — by design, opening a `?m=` link
+executes the model code it carries (the REPL evaluates models with
+`new Function`; the payload's structure is validated, the code string is not
+and cannot be). Only open share links from people you'd trust with pasted
+code — see [Share URLs](/guide/browser-repl#share-urls).
+
 **`save failed: …`** — localStorage quota or blocked storage; scenario sets
 degrade to empty.
 

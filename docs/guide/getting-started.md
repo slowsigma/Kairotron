@@ -235,7 +235,9 @@ From the REPL:
   [Outputs & exports](/reference/outputs)).
 - **Share** encodes the whole session — model, horizon, Monte Carlo inputs,
   playhead, and every branch — into the URL (`?m=…`). Anyone opening it gets
-  the same fold and re-forked branches. No server.
+  the same fold and re-forked branches. No server. A share link runs the
+  model code it carries, so treat one like a pasted script — see
+  [Share URLs](/guide/browser-repl#share-urls).
 - **💾 Save** files the model + controls as a named scenario in a scenario
   set (`localStorage`), selectable from the **scenario** dropdown.
 

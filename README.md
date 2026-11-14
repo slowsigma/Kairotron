@@ -256,7 +256,8 @@ horizon, the Monte Carlo controls, the playhead, and each branch's fork tick,
 buffer, and own horizon when re-ticked — deflate-compressed into one query
 parameter (with an uncompressed fallback), no server involved. Opening the link
 folds the trunk, re-forks the branches, and lands the playhead where you left
-it.
+it. A share link runs the model code it carries — treat one like a pasted
+script, and only open links from sources you'd trust with pasted code.
 
 **💾 Save** keeps scenario sets in `localStorage`: named model variants (code +
 horizon/MC controls) grouped into sets — *retirement / aggressive, cautious, …*

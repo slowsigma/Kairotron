@@ -171,6 +171,8 @@ questions:
 - **Share URL** = the whole *session* — trunk code, horizon, MC inputs,
   playhead, and each branch's fork tick and buffer — compressed into one `?m=`
   query parameter. Branches ride as forks and replay on load. Serverless.
+  Opening one runs the trunk code it carries, so treat a link like pasted
+  script ([Share URLs](/guide/browser-repl#share-urls)).
 - **Scenario sets** = named *variants* (code + controls, no playhead/branches)
   grouped into sets in `localStorage` — the spreadsheet-tabs notion of
   scenario. Loading one is an apply + re-run on a fresh trunk.

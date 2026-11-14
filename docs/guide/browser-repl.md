@@ -127,6 +127,14 @@ ever sees it — opening the link folds the trunk, re-forks the branches, and
 lands the playhead. A corrupted link says so in the status bar and falls
 back to the sample.
 
+::: warning A share link is a script
+Opening a link runs the model code it carries — that is the whole point of a
+shareable session, and the payload's *structure* is validated, but the code
+string itself is arbitrary JavaScript by design (the REPL evaluates models
+with `new Function`, like Strudel). Only open share links from people you'd
+trust with pasted code, and post yours where you'd paste the model itself.
+:::
+
 ## Scenario sets
 
 **💾 Save** files the current model + horizon/MC controls (the *trunk's*
