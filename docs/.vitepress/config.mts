@@ -51,6 +51,7 @@ export default defineConfig({
             { text: "CLI", link: "/reference/cli" },
             { text: "Outputs & exports", link: "/reference/outputs" },
             { text: "Glossary", link: "/reference/glossary" },
+            { text: "Additional links", link: "/reference/additional_links" },
           ],
         },
       ],
